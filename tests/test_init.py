@@ -119,9 +119,9 @@ async def test_statistics_import_is_incremental(hass, freezer, entry, mock_clien
     await coordinator.async_refresh()
     await hass.async_block_till_done(wait_background_tasks=True)
     second_from = mock_client["consumption"].call_args.args[2]
-    # Second run only reaches back two days for the summary, not the 30-day backfill.
+    # Second run only reaches back for the summary window, not the 30-day backfill.
     assert first_from < second_from
-    assert dt_util.utcnow() - second_from <= timedelta(days=3)
+    assert dt_util.utcnow() - second_from <= timedelta(days=5)
 
 
 async def test_no_telemetry_entities_without_display(hass, freezer, entry, mock_client):
@@ -139,3 +139,16 @@ async def test_auth_failure_starts_reauth(hass, entry):
     assert entry.state is ConfigEntryState.SETUP_ERROR
     assert any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
 
+
+
+async def test_last_full_day_uses_lagged_data(hass, freezer, entry, mock_client):
+    """Real data lags ~1.5 days; the summary should use the newest complete day."""
+    freezer.move_to("2026-10-24T11:10:00+00:00")
+    now = dt_util.utcnow()
+    end = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1, hours=1)  # 22 Oct 23:00Z
+    mock_client["consumption"].side_effect = lambda mpan, serial, f, t=None: consumption(f, end)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    summary = entry.runtime_data.consumption.data[MPAN]
+    assert summary.previous_day.date().isoformat() == "2026-10-22"
+    assert summary.previous_day_kwh == pytest.approx(12.0)

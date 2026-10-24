@@ -132,6 +132,14 @@ query Account($accountNumber: String!) {
 """
 )
 
+CREATE_API_KEY_MUTATION = """
+mutation CreateApiKey {
+  regenerateSecretKey {
+    key
+  }
+}
+"""
+
 TELEMETRY_QUERY = """
 query Telemetry($deviceId: String!) {
   smartMeterTelemetry(deviceId: $deviceId) {
@@ -367,6 +375,19 @@ class EdfClient:
     async def authenticate(self) -> None:
         """Check the credentials by getting a token."""
         await self._get_token(force=True)
+
+    async def async_create_api_key(self) -> str:
+        """Create a new API key for this user. Any previous key stops working.
+
+        EDF doesn't show keys in its website or app, and only returns a usable
+        one when it's created, so this is how an email/password login becomes
+        a stored API key.
+        """
+        data = await self.graphql(CREATE_API_KEY_MUTATION)
+        key = (data.get("regenerateSecretKey") or {}).get("key")
+        if not key:
+            raise EdfConnectionError("EDF didn't return an API key")
+        return key
 
     # -- queries ---------------------------------------------------------
 

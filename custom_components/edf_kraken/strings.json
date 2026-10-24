@@ -3,29 +3,56 @@
     "step": {
       "user": {
         "title": "Connect to EDF",
-        "description": "Choose how to sign in. An API key is recommended: it avoids the login rate limits that apply to email and password.",
+        "description": "Sign in with your EDF email and password and the integration creates an API key for you. Only the key is stored, never your password. Creating a key replaces any EDF API key you already use elsewhere.",
         "menu_options": {
-          "api_key": "API key",
-          "password": "Email and password"
+          "password": "Email and password (recommended)",
+          "api_key": "I already have an API key"
         }
       },
       "api_key": {
         "title": "EDF API key",
-        "data": { "api_key": "API key" },
-        "data_description": { "api_key": "Your account's API key (starts with sk_live_)." }
+        "data": {
+          "api_key": "API key"
+        },
+        "data_description": {
+          "api_key": "Your account's API key (starts with sk_live_)."
+        }
       },
       "password": {
         "title": "EDF account login",
-        "data": { "email": "Email", "password": "Password" }
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        },
+        "description": "Used once to create an API key. Your password isn't stored."
       },
       "account": {
         "title": "Choose account",
-        "data": { "account_number": "Account" }
+        "data": {
+          "account_number": "Account"
+        }
       },
       "reauth_confirm": {
         "title": "Re-authenticate with EDF",
-        "description": "EDF rejected the saved credentials. Enter them again.",
-        "data": { "api_key": "API key", "email": "Email", "password": "Password" }
+        "description": "EDF rejected the saved API key. Sign in again to create a new one.",
+        "menu_options": {
+          "reauth_password": "Email and password",
+          "reauth_api_key": "API key"
+        }
+      },
+      "reauth_api_key": {
+        "title": "EDF API key",
+        "data": {
+          "api_key": "API key"
+        }
+      },
+      "reauth_password": {
+        "title": "EDF account login",
+        "description": "Used once to create a new API key. Your password isn't stored.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -57,26 +84,62 @@
   },
   "entity": {
     "binary_sensor": {
-      "off_peak": { "name": "Off-peak" }
+      "off_peak": {
+        "name": "Off-peak"
+      }
     },
     "sensor": {
-      "balance": { "name": "Balance" },
-      "api_points_remaining": { "name": "API points remaining" },
-      "tariff": { "name": "Tariff" },
-      "current_rate": { "name": "Current rate" },
-      "next_rate": { "name": "Next rate" },
-      "next_rate_change": { "name": "Next rate change" },
-      "standing_charge": { "name": "Standing charge" },
-      "previous_day_consumption": { "name": "Previous day consumption" },
-      "previous_day_cost": { "name": "Previous day cost" },
-      "latest_reading": { "name": "Latest half-hour consumption" },
-      "data_available_to": { "name": "Data available to" },
-      "export_previous_day_consumption": { "name": "Previous day export" },
-      "export_previous_day_cost": { "name": "Previous day export value" },
-      "export_latest_reading": { "name": "Latest half-hour export" },
-      "export_data_available_to": { "name": "Export data available to" },
-      "demand": { "name": "Demand" },
-      "meter_total": { "name": "Meter total" }
+      "balance": {
+        "name": "Balance"
+      },
+      "api_points_remaining": {
+        "name": "API points remaining"
+      },
+      "tariff": {
+        "name": "Tariff"
+      },
+      "current_rate": {
+        "name": "Current rate"
+      },
+      "next_rate": {
+        "name": "Next rate"
+      },
+      "next_rate_change": {
+        "name": "Next rate change"
+      },
+      "standing_charge": {
+        "name": "Standing charge"
+      },
+      "previous_day_consumption": {
+        "name": "Last full day consumption"
+      },
+      "previous_day_cost": {
+        "name": "Last full day cost"
+      },
+      "latest_reading": {
+        "name": "Latest half-hour consumption"
+      },
+      "data_available_to": {
+        "name": "Data available to"
+      },
+      "export_previous_day_consumption": {
+        "name": "Last full day export"
+      },
+      "export_previous_day_cost": {
+        "name": "Last full day export value"
+      },
+      "export_latest_reading": {
+        "name": "Latest half-hour export"
+      },
+      "export_data_available_to": {
+        "name": "Export data available to"
+      },
+      "demand": {
+        "name": "Demand"
+      },
+      "meter_total": {
+        "name": "Meter total"
+      }
     }
   }
 }

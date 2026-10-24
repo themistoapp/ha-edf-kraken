@@ -19,6 +19,7 @@ from .const import (
     CONSUMPTION_INTERVAL,
     DOMAIN,
     RATES_INTERVAL,
+    SUMMARY_LOOKBACK_DAYS,
     TELEMETRY_BACKOFF,
     TELEMETRY_MAX_FAILURES,
     UK_TZ,
@@ -147,8 +148,9 @@ class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
     async def _fetch_point(self, point: MeterPoint) -> ConsumptionSummary:
         now = dt_util.now(UK_TZ)
         today = datetime.combine(now.date(), time(), tzinfo=UK_TZ)
-        yesterday = today - timedelta(days=1)
-        summary_from = yesterday - timedelta(days=1)
+        # Smart meter data usually lags a day or two, so look back far enough
+        # to find the most recent complete day.
+        summary_from = today - timedelta(days=SUMMARY_LOOKBACK_DAYS)
 
         stats_from = await async_last_imported(self.hass, point)
         if stats_from is None:
@@ -175,9 +177,9 @@ class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
         summary = ConsumptionSummary()
         if readings:
             summary.latest_start, summary.latest_end, summary.latest_kwh = readings[-1]
-        day = [r for r in readings if yesterday <= r[0] < today]
-        if len(day) >= 46:  # allow for the short day when the clocks change
-            summary.previous_day = yesterday
+        day_start, day = _latest_complete_day(readings, summary_from)
+        if day_start is not None:
+            summary.previous_day = day_start
             summary.previous_day_kwh = round(sum(r[2] for r in day), 3)
             energy_cost = 0.0
             for start, _end, kwh in day:
@@ -188,8 +190,8 @@ class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
                 energy_cost += kwh * rate
             if energy_cost is not None:
                 summary.previous_day_energy_cost = round(energy_cost / 100, 2)
-            agreement = point.agreement_at(yesterday)
-            standing = _standing_for(agreement, rates, yesterday)
+            agreement = point.agreement_at(day_start)
+            standing = _standing_for(agreement, rates, day_start)
             if standing is not None:
                 summary.previous_day_standing_charge = round(standing / 100, 2)
         return summary
@@ -216,6 +218,25 @@ class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
                 ),
             }
         return rates
+
+
+def _latest_complete_day(
+    readings: list[tuple[datetime, datetime, float]], since: datetime
+) -> tuple[datetime | None, list[tuple[datetime, datetime, float]]]:
+    """The newest UK day since `since` that has every half hour, and its readings."""
+    by_day: dict[datetime, list[tuple[datetime, datetime, float]]] = {}
+    for reading in readings:
+        if reading[0] < since:
+            continue
+        local = reading[0].astimezone(UK_TZ)
+        by_day.setdefault(datetime.combine(local.date(), time(), tzinfo=UK_TZ), []).append(reading)
+    for day_start in sorted(by_day, reverse=True):
+        day_end = datetime.combine(day_start.date() + timedelta(days=1), time(), tzinfo=UK_TZ)
+        # 46, 48 or 50 half hours depending on clock changes.
+        slots = int((day_end - day_start.astimezone(dt_util.UTC)).total_seconds() // 1800)
+        if len({r[0] for r in by_day[day_start]}) >= slots:
+            return day_start, by_day[day_start]
+    return None, []
 
 
 def _rate_for(point: MeterPoint, rates: dict[str, dict[str, list[Rate]]], moment: datetime) -> float | None:

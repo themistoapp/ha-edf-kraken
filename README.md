@@ -14,7 +14,8 @@ electricity tariff that has a smart meter.
 - Current rate and next rate (GBP/kWh), next rate change, standing charge (GBP/day)
 - Off-peak (binary sensor): on while the cheapest band applies, e.g. 23:00–06:00 on Go Electric
 - Tariff (diagnostic, with tariff/product codes and agreement dates)
-- Previous day consumption (kWh) and cost (GBP, including standing charge)
+- Last full day consumption (kWh) and cost (GBP, including standing charge). Smart meter
+  data usually arrives a day or two late, so this is the newest complete day, with its date as an attribute
 - Latest half-hour consumption and the time data is available up to
 - Demand (W) and meter total (kWh), only if your smart meter display sends live data to EDF
 
@@ -37,11 +38,16 @@ On first run the last 30 days are imported (change this under the integration's 
 
 ## Signing in
 
-Use an **API key** if you can. The integration swaps it for a short-lived token and
-refreshes that token on its own. Email and password also work, but EDF rate limits
-logins, and a CAPTCHA or password change will interrupt them.
+EDF doesn't show API keys in its website or app, so the easiest option is
+**Email and password**. The integration uses them once to create an API key, stores only
+the key and forgets the password. Logging in with the key also avoids EDF's login
+rate limits.
 
-If EDF rejects the credentials later, Home Assistant asks you to re-authenticate.
+Creating a key replaces any EDF API key you already had, so another tool that uses
+the old key will stop working. If you already have a key, choose **I already have an
+API key**.
+
+If EDF rejects the key later, Home Assistant asks you to sign in again, which creates a new key.
 
 ## API rate limits
 
@@ -49,11 +55,13 @@ EDF's API documentation sets these limits:
 
 | Limit | EDF's figure | What this integration does |
 |---|---|---|
-| Points per hour (account users) | 50,000 | Uses a few hundred an hour at most |
+| Points per hour (account users) | 50,000 | About 40 an hour (account query measured at 36 points) |
 | Complexity per request | 200 | Only small queries, one account at a time |
 | Page size | 100 GraphQL / 25,000 REST | Consumption comes from REST in one page |
 | Request-specific limits (`KT-CT-1199`) | Get stricter each time they're broken | Stops all requests for 15 minutes; no retries |
-| Login attempts | Rate limited per IP | One token reused until it nearly expires, then refreshed |
+| `obtainKrakenToken` (login) | 3 per minute | One token reused until it nearly expires, then refreshed |
+| `smartMeterTelemetry` | 125 per hour | Every 2 minutes by default; the minimum setting is 60 seconds |
+| `rateLimitInfo` | 10 per minute | Once an hour, inside the account query |
 
 Polling schedule:
 
@@ -62,7 +70,7 @@ Polling schedule:
 | Account, balance, tariff, points allowance | GraphQL | 1 hour | Yes |
 | Unit rates and standing charges | Public REST | 6 hours, and when your tariff changes | No |
 | Half-hourly consumption | REST | 30 minutes, newest data only | No |
-| Live telemetry (if available) | GraphQL | 2 minutes (configurable, minimum 30s) | Yes |
+| Live telemetry (if available) | GraphQL | 2 minutes (configurable, minimum 60s) | Yes, 9 per request |
 
 Requests are spaced at least one second apart. If live telemetry isn't available for your
 meter (`KT-GB-4039`), its entities aren't created. If it stops working later, the poll

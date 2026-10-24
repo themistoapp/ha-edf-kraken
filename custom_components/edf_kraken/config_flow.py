@@ -55,8 +55,14 @@ PASSWORD_SCHEMA = vol.Schema(
 )
 
 
-async def _validate(hass, credentials: dict[str, Any]) -> tuple[list[str], dict[str, str]]:
-    """Log in and list the accounts. Returns (accounts, errors)."""
+async def _validate(
+    hass, credentials: dict[str, Any]
+) -> tuple[dict[str, Any], list[str], dict[str, str]]:
+    """Log in and list the accounts. Returns (credentials to store, accounts, errors).
+
+    An email/password login is swapped for a new API key, so the password is
+    never stored and later logins don't hit EDF's per-IP login limits.
+    """
     client = EdfClient(
         async_get_clientsession(hass),
         api_key=credentials.get(CONF_API_KEY),
@@ -65,16 +71,18 @@ async def _validate(hass, credentials: dict[str, Any]) -> tuple[list[str], dict[
     )
     try:
         accounts = await client.async_get_account_numbers()
+        if accounts and not credentials.get(CONF_API_KEY):
+            credentials = {CONF_AUTH_METHOD: AUTH_API_KEY, CONF_API_KEY: await client.async_create_api_key()}
     except EdfAuthError:
-        return [], {"base": "invalid_auth"}
+        return credentials, [], {"base": "invalid_auth"}
     except EdfRateLimitError:
-        return [], {"base": "rate_limited"}
+        return credentials, [], {"base": "rate_limited"}
     except EdfError:
         _LOGGER.exception("Error connecting to EDF")
-        return [], {"base": "cannot_connect"}
+        return credentials, [], {"base": "cannot_connect"}
     if not accounts:
-        return [], {"base": "no_accounts"}
-    return accounts, {}
+        return credentials, [], {"base": "no_accounts"}
+    return credentials, accounts, {}
 
 
 class EdfConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -85,7 +93,7 @@ class EdfConfigFlow(ConfigFlow, domain=DOMAIN):
         self._accounts: list[str] = []
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        return self.async_show_menu(step_id="user", menu_options=[AUTH_API_KEY, AUTH_PASSWORD])
+        return self.async_show_menu(step_id="user", menu_options=[AUTH_PASSWORD, AUTH_API_KEY])
 
     async def async_step_api_key(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return await self._credentials_step(AUTH_API_KEY, API_KEY_SCHEMA, user_input)
@@ -96,8 +104,9 @@ class EdfConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _credentials_step(self, method, schema, user_input) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            credentials = {CONF_AUTH_METHOD: method, **user_input}
-            accounts, errors = await _validate(self.hass, credentials)
+            credentials, accounts, errors = await _validate(
+                self.hass, {CONF_AUTH_METHOD: method, **user_input}
+            )
             if not errors:
                 self._credentials = credentials
                 self._accounts = accounts
@@ -134,20 +143,32 @@ class EdfConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        # Re-authenticating means a new key either way, so offer the same
+        # choice as setup.
+        return self.async_show_menu(
+            step_id="reauth_confirm", menu_options=["reauth_api_key", "reauth_password"]
+        )
+
+    async def async_step_reauth_api_key(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return await self._reauth_step("reauth_api_key", AUTH_API_KEY, API_KEY_SCHEMA, user_input)
+
+    async def async_step_reauth_password(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return await self._reauth_step("reauth_password", AUTH_PASSWORD, PASSWORD_SCHEMA, user_input)
+
+    async def _reauth_step(self, step_id, method, schema, user_input) -> ConfigFlowResult:
         entry = self._get_reauth_entry()
-        method = entry.data.get(CONF_AUTH_METHOD, AUTH_API_KEY)
-        schema = API_KEY_SCHEMA if method == AUTH_API_KEY else PASSWORD_SCHEMA
         errors: dict[str, str] = {}
         if user_input is not None:
-            credentials = {CONF_AUTH_METHOD: method, **user_input}
-            accounts, errors = await _validate(self.hass, credentials)
+            credentials, accounts, errors = await _validate(
+                self.hass, {CONF_AUTH_METHOD: method, **user_input}
+            )
             if not errors and entry.data[CONF_ACCOUNT_NUMBER] not in accounts:
                 errors = {"base": "wrong_account"}
             if not errors:
                 return self.async_update_reload_and_abort(
-                    entry, data={**entry.data, **credentials}
+                    entry, data={CONF_ACCOUNT_NUMBER: entry.data[CONF_ACCOUNT_NUMBER], **credentials}
                 )
-        return self.async_show_form(step_id="reauth_confirm", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id=step_id, data_schema=schema, errors=errors)
 
     @staticmethod
     @callback

@@ -22,16 +22,19 @@ AUTH_API_KEY = "api_key"
 AUTH_PASSWORD = "password"
 
 # Polling intervals. Kraken gives account users 50,000 GraphQL points per hour
-# and a 200 point ceiling per request; these keep us at a small fraction of that.
+# and a 200 point ceiling per request. Measured on a live account, the hourly
+# account query costs 36 points and a telemetry request 9.
 ACCOUNT_INTERVAL = timedelta(hours=1)
 RATES_INTERVAL = timedelta(hours=6)
 CONSUMPTION_INTERVAL = timedelta(minutes=30)
 DEFAULT_TELEMETRY_INTERVAL = 120  # seconds
-MIN_TELEMETRY_INTERVAL = 30
+# smartMeterTelemetry is limited to 125 requests an hour per user.
+MIN_TELEMETRY_INTERVAL = 60
 TELEMETRY_BACKOFF = timedelta(minutes=30)
 TELEMETRY_MAX_FAILURES = 3
 
 DEFAULT_BACKFILL_DAYS = 30
+SUMMARY_LOOKBACK_DAYS = 4
 MAX_BACKFILL_DAYS = 365
 
 # Minimum gap between any two requests to the API, across all coordinators.

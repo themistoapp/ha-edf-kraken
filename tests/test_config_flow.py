@@ -44,3 +44,18 @@ async def test_invalid_auth(hass):
     with patch(f"{CLIENT}.async_get_account_numbers", AsyncMock(side_effect=EdfAuthError("bad"))):
         result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_API_KEY: "bad"})
     assert result["errors"] == {"base": "invalid_auth"}
+
+
+async def test_password_login_stores_only_a_new_api_key(hass):
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "password"})
+    with (
+        patch(f"{CLIENT}.async_get_account_numbers", AsyncMock(return_value=["A-1"])),
+        patch(f"{CLIENT}.async_create_api_key", AsyncMock(return_value="sk_live_new")),
+        patch("custom_components.edf_kraken.async_setup_entry", AsyncMock(return_value=True)),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"email": "me@example.com", "password": "secret"}
+        )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {"auth_method": "api_key", CONF_API_KEY: "sk_live_new", CONF_ACCOUNT_NUMBER: "A-1"}
