@@ -100,6 +100,9 @@ and each load inside it, with a kWh / £ switch in the corner. Days EDF hasn't
 settled yet are striped. Tap a day to see its figures. Devices on their own (not circuits or
 inside one) are shown after the circuits.
 
+Everything below can be set in the card's visual editor: tick which bars to show, pick their
+colours and order, and choose up to four hero figures. In YAML:
+
 ```yaml
 type: custom:edf-usage-card
 title: Electricity use

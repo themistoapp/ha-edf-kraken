@@ -40,17 +40,8 @@ class EdfUsageCard extends HTMLElement {
     return { days: 7 };
   }
 
-  static getConfigForm() {
-    return {
-      schema: [
-        { name: "title", selector: { text: {} } },
-        { name: "days", selector: { number: { min: 3, max: 31, mode: "box" } } },
-        { name: "unit", selector: { select: { mode: "dropdown", options: [{ value: "kwh", label: "kWh" }, { value: "gbp", label: "£" }] } } },
-        { name: "day", selector: { select: { mode: "dropdown", options: [{ value: "today", label: "Today" }, { value: "settled", label: "Last settled day" }] } } },
-        { name: "logo", selector: { text: {} } },
-      ],
-      computeLabel: (s) => ({ title: "Title", days: "Days", unit: "Start in", day: "Open on", logo: "Logo image URL" })[s.name],
-    };
+  static getConfigElement() {
+    return document.createElement("edf-usage-card-editor");
   }
 
   setConfig(config) {
@@ -350,6 +341,143 @@ const STYLES = `
   @media (prefers-reduced-motion: reduce) { .seg button { transition: none; } }
 `;
 
+
+const BASIC_SCHEMA = [
+  { name: "title", selector: { text: {} } },
+  {
+    type: "grid", name: "", schema: [
+      { name: "days", selector: { number: { min: 3, max: 31, mode: "box" } } },
+      { name: "unit", selector: { select: { mode: "dropdown", options: [{ value: "kwh", label: "kWh" }, { value: "gbp", label: "£" }] } } },
+      { name: "day", selector: { select: { mode: "dropdown", options: [{ value: "today", label: "Today" }, { value: "settled", label: "Last settled day" }] } } },
+    ],
+  },
+  { name: "logo", selector: { text: {} } },
+];
+const LABELS = { title: "Title", days: "Days shown", unit: "Start in", day: "Open on", logo: "Logo image URL (e.g. /local/edf.svg)" };
+
+/** Visual editor: the basics, then each series (shown, colour, order) and up to four hero figures. */
+class EdfUsageCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = { ...config };
+    this._render();
+  }
+
+  set hass(hass) {
+    const first = !this._hass;
+    this._hass = hass;
+    if (this._form) this._form.hass = hass;
+    if (first) this._load();
+  }
+
+  async _load() {
+    try {
+      const { meters } = await this._hass.callWS({ type: "edf_kraken/usage" });
+      const meter = meters.find((m) => m.mpan === this._config.mpan) ?? meters[0];
+      this._available = meter ? meter.series.map((s) => s.name) : [];
+    } catch {
+      this._available = [];
+    }
+    this._render();
+  }
+
+  /** Every series in display order: configured ones first (shown), then the rest (hidden, or all shown if none are configured). */
+  _rows() {
+    const conf = (this._config.series ?? []).map((c) => (typeof c === "string" ? { id: c } : c));
+    const configured = conf.length > 0;
+    const rows = conf.map((c) => ({ name: c.name ?? c.id, colour: c.colour ?? "", shown: true }));
+    for (const name of this._available ?? []) {
+      if (!rows.some((r) => r.name === name)) rows.push({ name, colour: "", shown: !configured });
+    }
+    return rows;
+  }
+
+  _changed(config) {
+    this._config = config;
+    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config }, bubbles: true, composed: true }));
+    this._render();
+  }
+
+  _saveRows(rows) {
+    const series = rows.filter((r) => r.shown).map((r) => (r.colour ? { id: r.name, colour: r.colour } : { id: r.name }));
+    const config = { ...this._config, series };
+    if (!series.length) delete config.series;
+    this._changed(config);
+  }
+
+  _saveFigures(figures) {
+    const config = { ...this._config, figures: figures.filter(Boolean) };
+    if (!config.figures.length) delete config.figures;
+    this._changed(config);
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) {
+      this.attachShadow({ mode: "open" });
+      this.shadowRoot.innerHTML = `<style>${EDITOR_STYLES}</style><div class="basic"></div><div class="extra"></div>`;
+      this._form = document.createElement("ha-form");
+      this._form.computeLabel = (s) => LABELS[s.name] ?? s.name;
+      this._form.addEventListener("value-changed", (e) => this._changed({ ...this._config, ...e.detail.value }));
+      this.shadowRoot.querySelector(".basic").appendChild(this._form);
+    }
+    this._form.hass = this._hass;
+    this._form.schema = BASIC_SCHEMA;
+    this._form.data = this._config;
+
+    const rows = this._rows();
+    const colourOptions = (sel) => [["", "Auto"], ...Object.keys(NAMED).map((n) => [n, n[0].toUpperCase() + n.slice(1)])]
+      .map(([v, l]) => `<option value="${v}" ${v === sel ? "selected" : ""}>${l}</option>`).join("")
+      + (sel && !(sel in NAMED) ? `<option value="${esc(sel)}" selected>${esc(sel)}</option>` : "");
+    const seriesHtml = rows.length
+      ? rows.map((r, i) => `<div class="srow ${r.shown ? "" : "off"}" data-i="${i}">
+          <input type="checkbox" class="shown" ${r.shown ? "checked" : ""} aria-label="Show ${esc(r.name)}">
+          <i style="background:${colourOf(r.colour, rows.filter((x, j) => x.shown && j < i).length, false)}"></i>
+          <span class="nm">${esc(r.name)}</span>
+          <select class="colour" aria-label="Colour">${colourOptions(r.colour)}</select>
+          <button class="up" ${i === 0 ? "disabled" : ""} aria-label="Move up">▲</button>
+          <button class="down" ${i === rows.length - 1 ? "disabled" : ""} aria-label="Move down">▼</button></div>`).join("")
+      : `<div class="hint">${this._available ? "No circuits or tracked devices yet." : "Loading…"}</div>`;
+
+    const figures = [...(this._config.figures ?? []).map((f) => (typeof f === "string" ? f : f.series)), "", "", "", ""].slice(0, 4);
+    const figOptions = (sel) => [["", "None"], ["total", "Total (meter)"], ...rows.map((r) => [r.name, r.name])]
+      .map(([v, l]) => `<option value="${esc(v)}" ${v === sel ? "selected" : ""}>${esc(l)}</option>`).join("");
+    const figHtml = figures.map((f, i) => `<label>Figure ${i + 1}<select class="fig" data-i="${i}">${figOptions(f)}</select></label>`).join("");
+
+    const extra = this.shadowRoot.querySelector(".extra");
+    extra.innerHTML = `<h3>Bars</h3><div class="hint">Tick what to show, pick colours and set the order with the arrows.</div>${seriesHtml}
+      <h3>Hero figures</h3><div class="hint">Up to four across the top, each with its off-peak share. Leave them all as None for the standard Today / Off-peak / Peak.</div>
+      <div class="figs">${figHtml}</div>`;
+
+    extra.querySelectorAll(".srow").forEach((el) => {
+      const i = Number(el.dataset.i);
+      el.querySelector(".shown").addEventListener("change", (e) => { rows[i].shown = e.target.checked; this._saveRows(rows); });
+      el.querySelector(".colour").addEventListener("change", (e) => { rows[i].colour = e.target.value; this._saveRows(rows); });
+      el.querySelector(".up").addEventListener("click", () => { [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]]; this._saveRows(rows); });
+      el.querySelector(".down").addEventListener("click", () => { [rows[i + 1], rows[i]] = [rows[i], rows[i + 1]]; this._saveRows(rows); });
+    });
+    extra.querySelectorAll(".fig").forEach((el) => {
+      el.addEventListener("change", (e) => { figures[Number(el.dataset.i)] = e.target.value; this._saveFigures(figures); });
+    });
+  }
+}
+
+const EDITOR_STYLES = `
+  :host { display: block; }
+  h3 { margin: 20px 0 4px; font-size: 15px; font-weight: 500; }
+  .hint { font-size: 12px; line-height: 16px; color: var(--secondary-text-color); margin-bottom: 8px; }
+  .srow { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--divider-color); }
+  .srow.off .nm, .srow.off i { opacity: .45; }
+  .srow i { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .srow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  select { font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--divider-color); background: var(--card-background-color, transparent); color: var(--primary-text-color); }
+  button { font: inherit; font-size: 11px; width: 30px; height: 30px; border-radius: 6px; border: 1px solid var(--divider-color); background: none; color: var(--primary-text-color); cursor: pointer; }
+  button:disabled { opacity: .3; cursor: default; }
+  input[type=checkbox] { width: 18px; height: 18px; margin: 0; }
+  .figs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .figs label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--secondary-text-color); }
+`;
+
+if (!customElements.get("edf-usage-card-editor")) customElements.define("edf-usage-card-editor", EdfUsageCardEditor);
 if (!customElements.get("edf-usage-card")) {
   customElements.define("edf-usage-card", EdfUsageCard);
   window.customCards = window.customCards || [];

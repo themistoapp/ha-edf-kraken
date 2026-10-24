@@ -20,5 +20,5 @@
     "custom_components.edf_kraken"
   ],
   "requirements": [],
-  "version": "0.2.3"
+  "version": "0.2.4"
 }
