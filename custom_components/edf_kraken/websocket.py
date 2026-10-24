@@ -39,10 +39,7 @@ def ws_usage(hass: HomeAssistant, connection: websocket_api.ActiveConnection, ms
                 continue
             series = []
             for c in circuits.layout(subentries, point.mpan):
-                base = circuits.remainder_id(c.subentry_id)
-                series.append(
-                    {"id": _prefix(statistic_id(base, "peak_energy")), "name": c.remainder_name, "role": "rest", "circuit": c.name}
-                )
+                series.append({"id": _prefix(statistic_id(c.subentry_id, "peak_energy")), "name": c.name, "role": "circuit"})
                 series += [
                     {"id": _prefix(statistic_id(l.subentry_id, "peak_energy")), "name": l.name, "role": "inside", "circuit": c.name}
                     for l in c.loads

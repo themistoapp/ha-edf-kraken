@@ -22,7 +22,6 @@ CONF_POWER_ENTITY = "power_entity"
 CONF_MPAN = "mpan"
 CONF_ROLE = "role"
 CONF_PARENT = "parent"
-CONF_REMAINDER_NAME = "remainder_name"
 SUBENTRY_TRACKED_DEVICE = "tracked_device"
 
 # How a tracked device relates to the meter: on its own, a circuit (a CT on a

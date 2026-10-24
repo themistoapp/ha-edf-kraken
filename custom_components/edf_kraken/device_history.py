@@ -38,7 +38,7 @@ KINDS = {
 
 
 def statistic_id(base: str, kind: str) -> str:
-    """A tracked device's (or circuit remainder's) statistic for one kind."""
+    """A tracked device's statistic for one kind."""
     return f"{DOMAIN}:tracked_{base}_{kind}".lower()
 
 

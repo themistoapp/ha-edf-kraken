@@ -282,7 +282,6 @@ class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
         names = {}
         for c in board:
             names[c.subentry_id] = c.name
-            names[circuits.remainder_id(c.subentry_id)] = c.remainder_name
             names.update({load.subentry_id: load.name for load in c.loads})
         tracked: dict[str, TrackedDay] = {}
         for base, kwh in hours.items():

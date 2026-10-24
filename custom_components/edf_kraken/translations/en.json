@@ -187,22 +187,20 @@
       "step": {
         "user": {
           "title": "Track a device's peak and off-peak cost",
-          "description": "Pick a power sensor (W or kW) or an energy sensor (Wh or kWh) for something like an EV charger or hot tub. Its usage is split into peak and off-peak and priced at your EDF rates, live and for past days from Home Assistant's history. The sensor needs long-term statistics (a state class) for the history part.",
+          "description": "Pick a power sensor (W or kW) or an energy sensor (Wh or kWh): a device such as an EV charger or hot tub, or a CT clamp on a whole board. Its usage is split into peak and off-peak and priced at your EDF rates, including past days from Home Assistant's history. The sensor needs long-term statistics (a state class).",
           "data": {
             "name": "Name",
             "source_entity": "Energy or power sensor",
             "power_entity": "Power sensor for current cost (optional)",
             "mpan": "Meter",
             "role": "Measures",
-            "parent": "Inside circuit",
-            "remainder_name": "Name for the rest of the circuit"
+            "parent": "Inside circuit"
           },
           "data_description": {
             "source_entity": "An energy sensor (kWh) is best: its history is exact. A power sensor (W) also works.",
             "power_entity": "Only needed if the main sensor is an energy sensor and you want a live Current cost.",
-            "role": "Circuit: a CT clamp on a whole board or circuit. All circuits on a meter should add up to it, and once EDF settles an hour they are scaled together to match. Inside a circuit: a load also measured by a circuit's CT, like a hot tub on the house board.",
-            "parent": "Only for a load inside a circuit.",
-            "remainder_name": "Circuits only: what's left once the loads inside are taken away, e.g. House. Defaults to the circuit's name."
+            "role": "Circuit: a CT clamp on a whole board, e.g. House or EV. All circuits on a meter should add up to it; once EDF settles an hour they are scaled together to match. Inside a circuit: a load that circuit's CT also sees, like a hot tub on the house board. It's taken out of the circuit's figures, so nothing is counted twice.",
+            "parent": "Only for a load inside a circuit."
           }
         },
         "reconfigure": {
@@ -213,15 +211,13 @@
             "power_entity": "Power sensor for current cost (optional)",
             "mpan": "Meter",
             "role": "Measures",
-            "parent": "Inside circuit",
-            "remainder_name": "Name for the rest of the circuit"
+            "parent": "Inside circuit"
           },
           "data_description": {
             "source_entity": "An energy sensor (kWh) is best: its history is exact. A power sensor (W) also works.",
             "power_entity": "Only needed if the main sensor is an energy sensor and you want a live Current cost.",
-            "role": "Circuit: a CT clamp on a whole board or circuit. All circuits on a meter should add up to it, and once EDF settles an hour they are scaled together to match. Inside a circuit: a load also measured by a circuit's CT, like a hot tub on the house board.",
-            "parent": "Only for a load inside a circuit.",
-            "remainder_name": "Circuits only: what's left once the loads inside are taken away, e.g. House. Defaults to the circuit's name."
+            "role": "Circuit: a CT clamp on a whole board, e.g. House or EV. All circuits on a meter should add up to it; once EDF settles an hour they are scaled together to match. Inside a circuit: a load that circuit's CT also sees, like a hot tub on the house board. It's taken out of the circuit's figures, so nothing is counted twice.",
+            "parent": "Only for a load inside a circuit."
           }
         }
       },

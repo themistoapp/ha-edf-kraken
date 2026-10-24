@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from homeassistant.config_entries import ConfigSubentryData
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.components.recorder.common import async_wait_recording_done
@@ -16,7 +17,6 @@ from custom_components.edf_kraken.const import (
     CONF_AUTH_METHOD,
     CONF_MPAN,
     CONF_PARENT,
-    CONF_REMAINDER_NAME,
     CONF_ROLE,
     CONF_SOURCE_ENTITY,
     DOMAIN,
@@ -35,8 +35,8 @@ T0 = datetime(2026, 10, 23, 0, tzinfo=dt_util.UTC)
 
 def test_reconcile_scales_settled_hours_only():
     board = [
-        circuits.Circuit("db1", "DB1", "sensor.db1", "House", [circuits.Member("spa", "Spa", "sensor.spa")]),
-        circuits.Circuit("ev", "DB-EV", "sensor.ev", "EV"),
+        circuits.Circuit("db1", "House", "sensor.db1", [circuits.Member("spa", "Spa", "sensor.spa")]),
+        circuits.Circuit("ev", "EV", "sensor.ev"),
     ]
     measured = {
         "db1": {T0: 3.0, T0 + H: 3.0, T0 + 2 * H: 3.0},
@@ -47,11 +47,10 @@ def test_reconcile_scales_settled_hours_only():
     meter = {T0: 5.0, T0 + H: 20.0}
     out, scaled = circuits.reconcile(board, measured, meter, T0 + 2 * H, T0, T0 + 3 * H)
     assert scaled == {T0}
-    assert [v for _, v in out["db1"]] == [3.75, 3.0, 3.0]
+    # The house circuit leaves out the spa inside it.
+    assert [v for _, v in out["db1"]] == [2.5, 2.0, 2.0]
     assert [v for _, v in out["spa"]] == [1.25, 1.0, 1.0]
-    assert [v for _, v in out["remainder_db1"]] == [2.5, 2.0, 2.0]
     assert [v for _, v in out["ev"]] == [1.25, 1.0, 1.0]
-    assert [v for _, v in out["remainder_ev"]] == [1.25, 1.0, 1.0]
 
 
 def _entry(hass):
@@ -69,9 +68,9 @@ def _entry(hass):
         unique_id=ACCOUNT_NUMBER,
         data={CONF_AUTH_METHOD: AUTH_API_KEY, CONF_API_KEY: "k", CONF_ACCOUNT_NUMBER: ACCOUNT_NUMBER},
         subentries_data=[
-            sub("DB1", {CONF_SOURCE_ENTITY: "sensor.db1", CONF_ROLE: ROLE_CIRCUIT, CONF_REMAINDER_NAME: "House"}),
-            sub("DB-EV", {CONF_SOURCE_ENTITY: "sensor.dbev", CONF_ROLE: ROLE_CIRCUIT, CONF_REMAINDER_NAME: "EV"}),
-            sub("Spa", {CONF_SOURCE_ENTITY: "sensor.spa", CONF_ROLE: ROLE_INSIDE, CONF_PARENT: "db1"}),
+            sub("House", {CONF_SOURCE_ENTITY: "sensor.db1", CONF_ROLE: ROLE_CIRCUIT}),
+            sub("EV", {CONF_SOURCE_ENTITY: "sensor.dbev", CONF_ROLE: ROLE_CIRCUIT}),
+            sub("Spa", {CONF_SOURCE_ENTITY: "sensor.spa", CONF_ROLE: ROLE_INSIDE, CONF_PARENT: "house"}),
         ],
     )
     entry.add_to_hass(hass)
@@ -110,8 +109,8 @@ async def test_board_estimate_then_settled(hass, freezer, mock_client):  # noqa:
     await async_wait_recording_done(hass)
 
     midnight = dt_util.parse_datetime("2026-10-24T00:00:00+00:00")
-    _, house = await _hours(hass, "remainder_db1", seed, None)
-    _, ev = await _hours(hass, "remainder_dbev", seed, None)
+    _, house = await _hours(hass, "house", seed, None)
+    _, ev = await _hours(hass, "ev", seed, None)
     _, spa = await _hours(hass, "spa", seed, None)
     # Settled (before midnight UTC): scaled to the meter.
     assert house[midnight - H] == pytest.approx(0.25)
@@ -122,16 +121,21 @@ async def test_board_estimate_then_settled(hass, freezer, mock_client):  # noqa:
     assert ev[midnight + H] == pytest.approx(0.1)
     assert max(house) == dt_util.parse_datetime("2026-10-24T10:00:00+00:00")
 
-    # The last full day (23 Oct UK) is covered for the remainder too, all of it settled.
-    assert entry.runtime_data.consumption.tracked["remainder_db1"].peak_kwh + entry.runtime_data.consumption.tracked[
-        "remainder_db1"
-    ].off_peak_kwh == pytest.approx(0.25 * 24, abs=0.01)
+    # The last full day (23 Oct UK) is settled, and House leaves out the spa.
+    house_day = entry.runtime_data.consumption.tracked["house"]
+    assert house_day.peak_kwh + house_day.off_peak_kwh == pytest.approx(0.25 * 24, abs=0.01)
+
+    # Circuits and loads have no live running totals, just the settled-day sensors and current cost.
+    registry = er.async_get(hass)
+    assert registry.async_get_entity_id("sensor", DOMAIN, "tracked_house_peak_energy") is None
+    assert registry.async_get_entity_id("sensor", DOMAIN, "tracked_house_day_peak_energy")
+    assert registry.async_get_entity_id("sensor", DOMAIN, "tracked_house_current_cost")
 
     # Just after the next hour, devices catch up between meter fetches.
     freezer.move_to("2026-10-24T12:05:00+00:00")
     await entry.runtime_data.consumption.async_update_devices()
     await async_wait_recording_done(hass)
-    _, house = await _hours(hass, "remainder_db1", seed, None)
+    _, house = await _hours(hass, "house", seed, None)
     assert max(house) == dt_util.parse_datetime("2026-10-24T11:00:00+00:00")
 
     # EDF's data now reaches 06:00: those hours are rewritten, and the sums stay continuous.
@@ -140,7 +144,7 @@ async def test_board_estimate_then_settled(hass, freezer, mock_client):  # noqa:
     await entry.runtime_data.consumption.async_refresh()
     await hass.async_block_till_done(wait_background_tasks=True)
     await async_wait_recording_done(hass)
-    stats, house = await _hours(hass, "remainder_db1", seed, None)
+    stats, house = await _hours(hass, "house", seed, None)
     assert house[midnight + H] == pytest.approx(0.25)
     assert house[six] == pytest.approx(0.2)
     for rows in stats.values():
@@ -168,7 +172,7 @@ async def test_usage_websocket_lists_board(hass, freezer, mock_client):  # noqa:
     assert meter["id"] == f"{DOMAIN}:electricity_{MPAN}_consumption".lower()
     assert meter["settled_to"] == "2026-10-24T00:00:00+00:00"
     assert [(s["name"], s["role"], s["id"]) for s in meter["series"]] == [
-        ("House", "rest", f"{DOMAIN}:tracked_remainder_db1"),
+        ("House", "circuit", f"{DOMAIN}:tracked_house"),
         ("Spa", "inside", f"{DOMAIN}:tracked_spa"),
-        ("EV", "rest", f"{DOMAIN}:tracked_remainder_dbev"),
+        ("EV", "circuit", f"{DOMAIN}:tracked_ev"),
     ]

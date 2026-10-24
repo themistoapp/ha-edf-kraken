@@ -68,31 +68,35 @@ None of this calls the EDF API beyond the public tariff rates.
 **Circuits (CT clamps)**
 
 If you have CT clamps on your boards, add each one as a tracked device and set **Measures**
-to *A circuit*. All the circuits on a meter should add up to it. Then add anything measured
-inside a circuit (a hot tub on the house board) as *A load inside a circuit* and pick its
-circuit. For example:
+to *A circuit*. All the circuits on a meter should add up to it. Then add anything that a
+circuit's CT also sees (a hot tub on the house board) as *A load inside a circuit* and pick
+its circuit. For example:
 
-| Tracked device | Measures | Inside | Name for the rest |
+| Tracked device | Sensor | Measures | Inside |
 |---|---|---|---|
-| DB1 (house board CT) | A circuit | | House |
-| DB-EV (EV board CT) | A circuit | | EV |
-| Spa | A load inside a circuit | DB1 | |
+| House | house board CT | A circuit | |
+| EV | EV board CT | A circuit | |
+| Spa | hot tub | A load inside a circuit | House |
 
-This gives House (DB1 less the spa), Spa and EV. Until EDF's half hours arrive, their
-figures are the CTs' own estimate, updated just after every hour. Once EDF settles an hour,
-every circuit on the meter is scaled by the same factor so they add up to the meter, and loads
-inside a circuit scale with it. That hour's statistics are rewritten, so graphs switch from the
-estimate to the settled figures by themselves. If the circuits and the meter are more than a
-factor of two apart for an hour (a CT offline, say), that hour is left as measured.
+A circuit's figures leave out the loads inside it, so House is the house without the hot
+tub, and House + Spa + EV add up to the meter with nothing counted twice (in the Energy
+dashboard too).
 
-Each circuit's remainder (House above) gets its own device with last-full-day sensors and
-statistics, like any tracked device.
+Until EDF's half hours arrive, the figures are the CTs' own estimate, updated just after
+every hour. Once EDF settles an hour, every circuit on the meter is scaled by the same factor
+so they add up to the meter, and the loads inside scale with their circuit. That hour's
+statistics are rewritten, so graphs switch from the estimate to the settled figures by
+themselves. If the circuits and the meter are more than a factor of two apart for an hour
+(a CT offline, say), that hour is left as measured.
+
+Circuits and loads get the last-full-day sensors and *Current cost* (a circuit's leaves out
+its loads). They don't get the live running totals: the hourly statistics replace them.
 
 ## Usage card
 
 The integration ships a card, so there's nothing else to install: add **EDF usage** from the
-card picker. It shows daily peak (solid) and off-peak (light) bars for each circuit's
-remainder and each load inside it, with a kWh / £ switch in the corner. Days EDF hasn't
+card picker. It shows daily peak (solid) and off-peak (light) bars for each circuit
+and each load inside it, with a kWh / £ switch in the corner. Days EDF hasn't
 settled yet are striped. Tap a day to see its figures. Without circuits it shows your tracked
 devices instead.
 

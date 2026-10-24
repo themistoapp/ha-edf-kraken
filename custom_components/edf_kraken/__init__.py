@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_utc_time_change
@@ -17,6 +18,7 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
 from .api import EdfClient
+from .circuits import grouped_ids
 from .const import (
     CONF_ACCOUNT_NUMBER,
     CONF_API_KEY,
@@ -42,6 +44,7 @@ from .websocket import async_register as async_register_websocket
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 CARD_URL = f"/{DOMAIN}/edf-usage-card.js"
+LIVE_TOTAL_KEYS = ("peak_energy", "off_peak_energy", "peak_cost", "off_peak_cost", "total_cost")
 
 
 @dataclass
@@ -134,6 +137,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: EdfConfigEntry) -> bool:
             "sensor", DOMAIN, f"{account.account_number}_electricity_{point.mpan}_latest_reading"
         ):
             registry.async_remove(entity_id)
+
+    # 0.2.0 gave each circuit a separate "Rest of" device, and circuits and the
+    # loads inside them had live running totals; 0.2.1 drops both.
+    devices = dr.async_get(hass)
+    grouped = grouped_ids(entry.subentries.values())
+    for device in dr.async_entries_for_config_entry(devices, entry.entry_id):
+        if any(domain == DOMAIN and ident.startswith("tracked_remainder_") for domain, ident in device.identifiers):
+            devices.async_remove_device(device.id)
+    for subentry_id in grouped:
+        for key in LIVE_TOTAL_KEYS:
+            if entity_id := registry.async_get_entity_id("sensor", DOMAIN, f"tracked_{subentry_id}_{key}"):
+                registry.async_remove(entity_id)
 
     for subentry in entry.get_subentries_of_type(SUBENTRY_TRACKED_DEVICE):
         tracker = DeviceTracker(

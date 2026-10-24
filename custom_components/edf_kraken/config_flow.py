@@ -44,7 +44,6 @@ from .const import (
     CONF_MPAN,
     CONF_PARENT,
     CONF_POWER_ENTITY,
-    CONF_REMAINDER_NAME,
     CONF_ROLE,
     CONF_SOURCE_ENTITY,
     CONF_TELEMETRY_INTERVAL,
@@ -270,8 +269,6 @@ class TrackedDeviceSubentryFlow(ConfigSubentryFlow):
                     data[CONF_MPAN] = entry.subentries[data[CONF_PARENT]].data[CONF_MPAN]
             else:
                 data.pop(CONF_PARENT, None)
-            if role != ROLE_CIRCUIT:
-                data.pop(CONF_REMAINDER_NAME, None)
             if not errors:
                 if step_id == "reconfigure":
                     return self.async_update_and_abort(
@@ -302,9 +299,6 @@ class TrackedDeviceSubentryFlow(ConfigSubentryFlow):
             ): SelectSelector(
                 SelectSelectorConfig(options=[{"value": k, "label": v} for k, v in circuits.items()])
             ),
-            vol.Optional(
-                CONF_REMAINDER_NAME, description={"suggested_value": current.get(CONF_REMAINDER_NAME)}
-            ): TextSelector(),
         }
         if len(meters) > 1:
             fields[vol.Required(CONF_MPAN, default=current.get(CONF_MPAN, meters[0]))] = SelectSelector(

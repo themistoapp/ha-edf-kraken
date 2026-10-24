@@ -22,7 +22,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from . import EdfConfigEntry
-from .circuits import layout, remainder_id
+from .circuits import layout
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import (
     AccountCoordinator,
@@ -69,19 +69,37 @@ async def async_setup_entry(
             ]
     async_add_entities(entities)
 
+    # Circuits and the loads inside them are split hour by hour and settled
+    # against the meter, so they skip the live running totals.
+    board = {c.subentry_id: c for point in account.data.meter_points for c in layout(entry.subentries.values(), point.mpan)}
+    inside = {load.subentry_id: c for c in board.values() for load in c.loads}
     for subentry_id, tracker in data.trackers.items():
         subentry = entry.subentries[subentry_id]
+        if subentry_id in board:
+            model = "Circuit (CT clamp)"
+            if board[subentry_id].loads:
+                model += ", excluding " + ", ".join(load.name for load in board[subentry_id].loads)
+        elif subentry_id in inside:
+            model = f"Inside {inside[subentry_id].name}"
+        else:
+            model = "Tracked device"
         device = DeviceInfo(
             identifiers={(DOMAIN, f"tracked_{subentry_id}")},
             name=subentry.title,
             manufacturer=MANUFACTURER,
-            model="Tracked device",
+            model=model,
             via_device=(DOMAIN, f"electricity_{tracker.mpan}"),
         )
+        loads = [data.trackers[load.subentry_id] for load in board[subentry_id].loads] if subentry_id in board else []
+        grouped = subentry_id in board or subentry_id in inside
         async_add_entities(
             [
-                *(TrackedDeviceSensor(tracker, subentry_id, device, desc) for desc in TRACKED_SENSORS),
-                TrackedCurrentCostSensor(tracker, subentry_id, device),
+                *(
+                    TrackedDeviceSensor(tracker, subentry_id, device, desc)
+                    for desc in TRACKED_SENSORS
+                    if not grouped
+                ),
+                TrackedCurrentCostSensor(tracker, subentry_id, device, loads),
                 *(
                     TrackedDaySensor(data.consumption, subentry_id, device, desc)
                     for desc in TRACKED_DAY_SENSORS
@@ -89,22 +107,6 @@ async def async_setup_entry(
             ],
             config_subentry_id=subentry_id,
         )
-
-    # Each circuit's remainder (the circuit less the loads measured inside it) as its own device.
-    for point in account.data.meter_points:
-        for circuit in layout(entry.subentries.values(), point.mpan):
-            base = remainder_id(circuit.subentry_id)
-            device = DeviceInfo(
-                identifiers={(DOMAIN, f"tracked_{base}")},
-                name=circuit.remainder_name,
-                manufacturer=MANUFACTURER,
-                model="Rest of circuit",
-                via_device=(DOMAIN, f"tracked_{circuit.subentry_id}"),
-            )
-            async_add_entities(
-                [TrackedDaySensor(data.consumption, base, device, desc) for desc in TRACKED_DAY_SENSORS],
-                config_subentry_id=circuit.subentry_id,
-            )
 
 
 # -- account -------------------------------------------------------------
@@ -606,7 +608,10 @@ class TrackedDeviceSensor(SensorEntity):
 
 
 class TrackedCurrentCostSensor(SensorEntity):
-    """What the device is costing right now: live power x current rate."""
+    """What the device is costing right now: live power x current rate.
+
+    For a circuit, the loads inside it are taken off.
+    """
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -615,13 +620,17 @@ class TrackedCurrentCostSensor(SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 2
 
-    def __init__(self, tracker: DeviceTracker, subentry_id: str, device: DeviceInfo) -> None:
+    def __init__(
+        self, tracker: DeviceTracker, subentry_id: str, device: DeviceInfo, loads: list[DeviceTracker]
+    ) -> None:
         self._tracker = tracker
+        self._loads = loads
         self._attr_unique_id = f"tracked_{subentry_id}_current_cost"
         self._attr_device_info = device
 
     async def async_added_to_hass(self) -> None:
-        self.async_on_remove(self._tracker.add_listener(self.async_write_ha_state))
+        for tracker in (self._tracker, *self._loads):
+            self.async_on_remove(tracker.add_listener(self.async_write_ha_state))
         # The rate can change while the power stays the same.
         self.async_on_remove(
             async_track_utc_time_change(self.hass, self._tick, minute=(0, 30), second=1)
@@ -638,7 +647,10 @@ class TrackedCurrentCostSensor(SensorEntity):
     @property
     def native_value(self) -> float | None:
         value = self._tracker.current_cost_per_hour
-        return round(value, 4) if value is not None else None
+        if value is None:
+            return None
+        value -= sum(load.current_cost_per_hour or 0.0 for load in self._loads)
+        return round(max(value, 0.0), 4)
 
 
 @dataclass(frozen=True, kw_only=True)
