@@ -97,8 +97,8 @@ its loads). They don't get the live running totals: the hourly statistics replac
 The integration ships a card, so there's nothing else to install: add **EDF usage** from the
 card picker. It shows daily peak (solid) and off-peak (light) bars for each circuit
 and each load inside it, with a kWh / £ switch in the corner. Days EDF hasn't
-settled yet are striped. Tap a day to see its figures. Without circuits it shows your tracked
-devices instead.
+settled yet are striped. Tap a day to see its figures. Devices on their own (not circuits or
+inside one) are shown after the circuits.
 
 ```yaml
 type: custom:edf-usage-card

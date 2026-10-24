@@ -183,7 +183,11 @@ class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
                 continue
             result[point.mpan] = await self._fetch_point(point)
         async with self._devices_lock:
-            await self._update_devices(result)
+            try:
+                await self._update_devices(result)
+            except Exception:
+                # Tracked devices must never stop the meter's own figures updating.
+                _LOGGER.exception("Updating tracked devices failed")
         return result
 
     async def async_update_devices(self) -> None:
@@ -195,6 +199,9 @@ class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
                 await self._update_devices(self.data)
             except EdfError as err:
                 _LOGGER.debug("Tracked device update skipped: %s", err)
+                return
+            except Exception:
+                _LOGGER.exception("Updating tracked devices failed")
                 return
         self.async_update_listeners()
 

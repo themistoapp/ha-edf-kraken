@@ -164,8 +164,10 @@ async def test_usage_websocket_lists_board(hass, freezer, mock_client):  # noqa:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done(wait_background_tasks=True)
 
+    await async_wait_recording_done(hass)
     connection = MagicMock()
     ws_usage(hass, connection, {"id": 1, "type": f"{DOMAIN}/usage"})
+    await hass.async_block_till_done()
     result = connection.send_result.call_args[0][1]
     meter = result["meters"][0]
     assert meter["mpan"] == MPAN

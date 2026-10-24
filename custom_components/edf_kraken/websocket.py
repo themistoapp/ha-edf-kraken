@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant, callback
 from . import circuits
 from .const import CONF_MPAN, DOMAIN, SUBENTRY_TRACKED_DEVICE
 from .device_history import statistic_id
+from .statistics import async_last_imported
 from .statistics import statistic_id as meter_statistic_id
 
 
@@ -25,15 +26,14 @@ def _prefix(stat_id: str) -> str:
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/usage"})
-@callback
-def ws_usage(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+@websocket_api.async_response
+async def ws_usage(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
     """Every import meter, with the series its usage splits into and how far EDF has settled it."""
     meters = []
     for entry in hass.config_entries.async_loaded_entries(DOMAIN):
         runtime = entry.runtime_data
         subentries = list(entry.subentries.values())
         grouped = circuits.grouped_ids(subentries)
-        summaries = runtime.consumption.data or {}
         for point in runtime.account.data.meter_points:
             if point.is_export or not point.serial:
                 continue
@@ -51,12 +51,13 @@ def ws_usage(hass: HomeAssistant, connection: websocket_api.ActiveConnection, ms
                 and s.subentry_id not in grouped
                 and s.data.get(CONF_MPAN) == point.mpan
             ]
-            summary = summaries.get(point.mpan)
+            # From the meter's statistics, so it's right even before the first update finishes.
+            settled_to = await async_last_imported(hass, point)
             meters.append(
                 {
                     "mpan": point.mpan,
                     "id": _prefix(meter_statistic_id(point, "peak_energy")),
-                    "settled_to": summary.latest_end.isoformat() if summary and summary.latest_end else None,
+                    "settled_to": settled_to.isoformat() if settled_to else None,
                     "series": series,
                 }
             )

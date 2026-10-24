@@ -89,6 +89,7 @@ class EdfUsageCard extends HTMLElement {
 
   disconnectedCallback() {
     clearInterval(this._timer);
+    clearTimeout(this._retry);
     this._ro?.disconnect();
   }
 
@@ -128,9 +129,12 @@ class EdfUsageCard extends HTMLElement {
       this._loading = false;
       this._render();
     }
+    // Just after a restart the integration may still be loading: look again soon.
+    clearTimeout(this._retry);
+    if (this._error || !this._meter?.settled_to) this._retry = setTimeout(() => this._load(), 60000);
   }
 
-  /** Circuits' rest and the loads inside them (House, Spa, EV); devices on their own only if there are no circuits. */
+  /** Circuits, the loads inside them, then devices on their own, as the integration lists them. */
   _pickSeries(meter) {
     const chosen = this._config.series;
     if (Array.isArray(chosen) && chosen.length) {
@@ -140,8 +144,7 @@ class EdfUsageCard extends HTMLElement {
         return found ? { ...found, ...conf, id: found.id, name: conf.name ?? found.name } : undefined;
       }).filter(Boolean);
     }
-    const board = meter.series.filter((s) => s.role !== "device");
-    return board.length ? board : meter.series;
+    return meter.series;
   }
 
   /** Configured figures: "total" (the meter once settled) or a series by name, each with its off-peak share. */
