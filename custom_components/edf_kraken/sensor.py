@@ -30,6 +30,7 @@ from .coordinator import (
     RatesCoordinator,
     TariffRates,
     TelemetryCoordinator,
+    TrackedDay,
 )
 from .entity import account_device, meter_device
 from .models import AccountData, MeterPoint, Rate, merge_rates, rate_at
@@ -77,7 +78,14 @@ async def async_setup_entry(
             via_device=(DOMAIN, f"electricity_{tracker.mpan}"),
         )
         async_add_entities(
-            [TrackedDeviceSensor(tracker, subentry_id, device, desc) for desc in TRACKED_SENSORS],
+            [
+                *(TrackedDeviceSensor(tracker, subentry_id, device, desc) for desc in TRACKED_SENSORS),
+                TrackedCurrentCostSensor(tracker, subentry_id, device),
+                *(
+                    TrackedDaySensor(data.consumption, subentry_id, device, desc)
+                    for desc in TRACKED_DAY_SENSORS
+                ),
+            ],
             config_subentry_id=subentry_id,
         )
 
@@ -578,3 +586,113 @@ class TrackedDeviceSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"source": self._tracker.source}
+
+
+class TrackedCurrentCostSensor(SensorEntity):
+    """What the device is costing right now: live power x current rate."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_translation_key = "tracked_current_cost"
+    _attr_native_unit_of_measurement = "GBP/h"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, tracker: DeviceTracker, subentry_id: str, device: DeviceInfo) -> None:
+        self._tracker = tracker
+        self._attr_unique_id = f"tracked_{subentry_id}_current_cost"
+        self._attr_device_info = device
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(self._tracker.add_listener(self.async_write_ha_state))
+        # The rate can change while the power stays the same.
+        self.async_on_remove(
+            async_track_utc_time_change(self.hass, self._tick, minute=(0, 30), second=1)
+        )
+
+    @callback
+    def _tick(self, _now: datetime) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        return self._tracker.current_cost_per_hour is not None
+
+    @property
+    def native_value(self) -> float | None:
+        value = self._tracker.current_cost_per_hour
+        return round(value, 4) if value is not None else None
+
+
+@dataclass(frozen=True, kw_only=True)
+class TrackedDaySensorDescription(SensorEntityDescription):
+    value_fn: Callable[[TrackedDay], float]
+
+
+TRACKED_DAY_SENSORS = (
+    TrackedDaySensorDescription(
+        key="day_peak_energy",
+        translation_key="tracked_day_peak_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda d: d.peak_kwh,
+    ),
+    TrackedDaySensorDescription(
+        key="day_off_peak_energy",
+        translation_key="tracked_day_off_peak_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda d: d.off_peak_kwh,
+    ),
+    TrackedDaySensorDescription(
+        key="day_peak_cost",
+        translation_key="tracked_day_peak_cost",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement="GBP",
+        suggested_display_precision=2,
+        value_fn=lambda d: d.peak_cost,
+    ),
+    TrackedDaySensorDescription(
+        key="day_off_peak_cost",
+        translation_key="tracked_day_off_peak_cost",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement="GBP",
+        suggested_display_precision=2,
+        value_fn=lambda d: d.off_peak_cost,
+    ),
+)
+
+
+class TrackedDaySensor(CoordinatorEntity[ConsumptionCoordinator], SensorEntity):
+    """A tracked device's usage on the same settled day as the meter's last full day."""
+
+    _attr_has_entity_name = True
+    entity_description: TrackedDaySensorDescription
+
+    def __init__(self, coordinator: ConsumptionCoordinator, subentry_id: str, device: DeviceInfo, description) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._subentry_id = subentry_id
+        self._attr_unique_id = f"tracked_{subentry_id}_{description.key}"
+        self._attr_device_info = device
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._subentry_id in self.coordinator.tracked
+
+    @property
+    def native_value(self) -> float | None:
+        day = self.coordinator.tracked.get(self._subentry_id)
+        return self.entity_description.value_fn(day) if day else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        day = self.coordinator.tracked.get(self._subentry_id)
+        if not day:
+            return None
+        return {
+            "date": day.day.date().isoformat(),
+            "share_of_meter_percent": round(day.share * 100, 1) if day.share is not None else None,
+        }

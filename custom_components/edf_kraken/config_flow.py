@@ -42,6 +42,7 @@ from .const import (
     CONF_AUTH_METHOD,
     CONF_BACKFILL_DAYS,
     CONF_MPAN,
+    CONF_POWER_ENTITY,
     CONF_SOURCE_ENTITY,
     CONF_TELEMETRY_INTERVAL,
     DEFAULT_BACKFILL_DAYS,
@@ -259,9 +260,13 @@ class TrackedDeviceSubentryFlow(ConfigSubentryFlow):
             vol.Required(CONF_SOURCE_ENTITY, default=current.get(CONF_SOURCE_ENTITY, vol.UNDEFINED)): EntitySelector(
                 EntitySelectorConfig(
                     domain="sensor",
-                    device_class=[SensorDeviceClass.POWER, SensorDeviceClass.ENERGY],
+                    device_class=[SensorDeviceClass.ENERGY, SensorDeviceClass.POWER],
                 )
             ),
+            vol.Optional(
+                CONF_POWER_ENTITY,
+                description={"suggested_value": current.get(CONF_POWER_ENTITY)},
+            ): EntitySelector(EntitySelectorConfig(domain="sensor", device_class=SensorDeviceClass.POWER)),
         }
         if len(meters) > 1:
             fields[vol.Required(CONF_MPAN, default=current.get(CONF_MPAN, meters[0]))] = SelectSelector(

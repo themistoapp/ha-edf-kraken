@@ -18,6 +18,7 @@ CONF_ACCOUNT_NUMBER = "account_number"
 CONF_TELEMETRY_INTERVAL = "telemetry_interval"
 CONF_BACKFILL_DAYS = "backfill_days"
 CONF_SOURCE_ENTITY = "source_entity"
+CONF_POWER_ENTITY = "power_entity"
 CONF_MPAN = "mpan"
 SUBENTRY_TRACKED_DEVICE = "tracked_device"
 

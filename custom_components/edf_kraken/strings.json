@@ -147,19 +147,34 @@
         "name": "Last full day off-peak cost"
       },
       "tracked_peak_energy": {
-        "name": "Peak energy"
+        "name": "Peak energy (live)"
       },
       "tracked_off_peak_energy": {
-        "name": "Off-peak energy"
+        "name": "Off-peak energy (live)"
       },
       "tracked_peak_cost": {
-        "name": "Peak cost"
+        "name": "Peak cost (live)"
       },
       "tracked_off_peak_cost": {
-        "name": "Off-peak cost"
+        "name": "Off-peak cost (live)"
       },
       "tracked_total_cost": {
-        "name": "Total cost"
+        "name": "Total cost (live)"
+      },
+      "tracked_current_cost": {
+        "name": "Current cost"
+      },
+      "tracked_day_peak_energy": {
+        "name": "Last full day peak energy"
+      },
+      "tracked_day_off_peak_energy": {
+        "name": "Last full day off-peak energy"
+      },
+      "tracked_day_peak_cost": {
+        "name": "Last full day peak cost"
+      },
+      "tracked_day_off_peak_cost": {
+        "name": "Last full day off-peak cost"
       }
     }
   },
@@ -172,19 +187,29 @@
       "step": {
         "user": {
           "title": "Track a device's peak and off-peak cost",
-          "description": "Pick a power sensor (W or kW) or an energy sensor (Wh or kWh) for something like an EV charger or hot tub. Its usage is split into peak and off-peak and priced at your EDF rates as it happens.",
+          "description": "Pick a power sensor (W or kW) or an energy sensor (Wh or kWh) for something like an EV charger or hot tub. Its usage is split into peak and off-peak and priced at your EDF rates, live and for past days from Home Assistant's history. The sensor needs long-term statistics (a state class) for the history part.",
           "data": {
             "name": "Name",
-            "source_entity": "Power or energy sensor",
+            "source_entity": "Energy or power sensor",
+            "power_entity": "Power sensor for current cost (optional)",
             "mpan": "Meter"
+          },
+          "data_description": {
+            "source_entity": "An energy sensor (kWh) is best: its history is exact. A power sensor (W) also works.",
+            "power_entity": "Only needed if the main sensor is an energy sensor and you want a live Current cost."
           }
         },
         "reconfigure": {
           "title": "Edit tracked device",
           "data": {
             "name": "Name",
-            "source_entity": "Power or energy sensor",
+            "source_entity": "Energy or power sensor",
+            "power_entity": "Power sensor for current cost (optional)",
             "mpan": "Meter"
+          },
+          "data_description": {
+            "source_entity": "An energy sensor (kWh) is best: its history is exact. A power sensor (W) also works.",
+            "power_entity": "Only needed if the main sensor is an energy sensor and you want a live Current cost."
           }
         }
       },

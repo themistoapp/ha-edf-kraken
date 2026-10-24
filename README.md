@@ -42,12 +42,28 @@ On first run the last 30 days are imported (change this under the integration's 
 **Tracked devices**
 
 To see what one appliance costs, such as an EV charger or hot tub, open the integration and
-choose **Add tracked device**. Pick its power sensor (W/kW) or energy sensor (Wh/kWh). You
-get peak energy, off-peak energy, peak cost, off-peak cost and total cost. Usage is priced at
-your EDF rate as it happens and split exactly at rate changes. No API calls are made; it
-reuses the cached rates. Totals keep running and survive restarts. History graphs and
-statistics give the per-day breakdown, and the energy sensors can be added to the Energy
-dashboard's individual devices. Time while Home Assistant is down isn't counted.
+choose **Add tracked device**.
+
+- **Main sensor:** use the device's **energy sensor (kWh)** if it has one. Home Assistant
+  keeps its exact hourly change, so past days are exact. A power sensor (W) works too, but
+  its history only keeps an hourly average.
+- **Power sensor (optional):** used only for *Current cost*. Add it if the main sensor is an
+  energy sensor.
+
+Each tracked device gets:
+
+| Sensor | What it shows |
+|---|---|
+| Last full day peak / off-peak energy and cost | The same settled day as the meter's *Last full day*, so the two compare directly. `share_of_meter_percent` shows the device's share of the meter's usage. |
+| Current cost (£/h) | Live power × current rate |
+| Peak / off-peak energy and cost, total cost (live) | Running totals from live readings, for "what has it cost today" |
+
+The device's peak/off-peak energy and cost are also written to long-term statistics, rebuilt
+from Home Assistant's history and priced at the EDF rate in force at the time. They backfill
+to the start of your EDF supply (up to a year) and update every 30 minutes, so they appear in
+statistics graphs and the Energy dashboard's individual devices. The history part needs the
+sensor to have long-term statistics (a state class), which most energy and power sensors do.
+None of this calls the EDF API beyond the public tariff rates.
 
 ## Install
 

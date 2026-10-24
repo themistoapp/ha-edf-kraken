@@ -13,12 +13,17 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from . import device_history
 from .api import TELEMETRY_UNAVAILABLE_CODES, EdfApiError, EdfAuthError, EdfClient, EdfError
 from .const import (
     ACCOUNT_INTERVAL,
+    CONF_MPAN,
+    CONF_SOURCE_ENTITY,
     CONSUMPTION_INTERVAL,
     DOMAIN,
+    MAX_BACKFILL_DAYS,
     RATES_INTERVAL,
+    SUBENTRY_TRACKED_DEVICE,
     SUMMARY_LOOKBACK_DAYS,
     TELEMETRY_BACKOFF,
     TELEMETRY_MAX_FAILURES,
@@ -137,6 +142,18 @@ class ConsumptionSummary:
     previous_day_off_peak_cost: float | None = None  # GBP
 
 
+@dataclass
+class TrackedDay:
+    """A tracked device's usage on the meter's last full day."""
+
+    day: datetime
+    peak_kwh: float
+    off_peak_kwh: float
+    peak_cost: float  # GBP
+    off_peak_cost: float  # GBP
+    share: float | None  # fraction of the meter's usage that day
+
+
 class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
     """Half-hourly smart meter consumption.
 
@@ -149,6 +166,7 @@ class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
         super().__init__(hass, entry, client, "consumption", CONSUMPTION_INTERVAL)
         self.account = account
         self.backfill_days = backfill_days
+        self.tracked: dict[str, TrackedDay] = {}
 
     async def _fetch(self) -> dict[str, ConsumptionSummary]:
         result: dict[str, ConsumptionSummary] = {}
@@ -156,7 +174,67 @@ class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
             if not point.serial:
                 continue
             result[point.mpan] = await self._fetch_point(point)
+        tracked: dict[str, TrackedDay] = {}
+        for subentry in self.config_entry.get_subentries_of_type(SUBENTRY_TRACKED_DEVICE):
+            point = next(
+                (p for p in self.account.data.meter_points if p.mpan == subentry.data[CONF_MPAN]), None
+            )
+            if point is None:
+                continue
+            day = await self._update_tracked(
+                subentry.subentry_id, subentry.title, subentry.data[CONF_SOURCE_ENTITY], point, result.get(point.mpan)
+            )
+            if day:
+                tracked[subentry.subentry_id] = day
+        self.tracked = tracked
         return result
+
+    async def _update_tracked(
+        self, subentry_id: str, name: str, entity_id: str, point: MeterPoint, meter: ConsumptionSummary | None
+    ) -> TrackedDay | None:
+        """Bring a tracked device's statistics up to date and total its last full day."""
+        kind = await device_history.async_source_kind(self.hass, entity_id)
+        if kind is None:
+            _LOGGER.debug("%s has no long-term statistics; history not available", entity_id)
+            return None
+        now = dt_util.utcnow()
+        this_hour = now.replace(minute=0, second=0, microsecond=0)
+        # Backfill as far as the EDF supply goes (capped), then carry on hourly.
+        supply_start = point.agreements[0].valid_from if point.agreements else this_hour
+        start = await device_history.async_last_imported(self.hass, subentry_id)
+        if start is None:
+            start = max(supply_start, this_hour - timedelta(days=MAX_BACKFILL_DAYS))
+        day_start = meter.previous_day if meter else None
+        fetch_from = min(start, day_start) if day_start else start
+        if fetch_from >= this_hour:
+            return None
+
+        hours = await device_history.async_hourly_kwh(self.hass, entity_id, kind, fetch_from, this_hour)
+        rates = await self._historic_rates(point, fetch_from, now)
+        priced = device_history.price_hours(
+            hours,
+            lambda moment: _rate_for(point, rates, moment),
+            lambda moment: _band_for(point, rates, moment),
+        )
+        await device_history.async_import(self.hass, subentry_id, name, [p for p in priced if p[0] >= start])
+
+        if not day_start:
+            return None
+        day_end = datetime.combine(day_start.date() + timedelta(days=1), time(), tzinfo=UK_TZ)
+        totals = dict.fromkeys(device_history.KINDS, 0.0)
+        for hour, values in priced:
+            if day_start <= hour < day_end:
+                for key, value in values.items():
+                    totals[key] += value
+        device_kwh = totals["peak_energy"] + totals["off_peak_energy"]
+        return TrackedDay(
+            day=day_start,
+            peak_kwh=round(totals["peak_energy"], 3),
+            off_peak_kwh=round(totals["off_peak_energy"], 3),
+            peak_cost=round(totals["peak_cost"], 2),
+            off_peak_cost=round(totals["off_peak_cost"], 2),
+            share=round(device_kwh / meter.previous_day_kwh, 3) if meter and meter.previous_day_kwh else None,
+        )
 
     async def _fetch_point(self, point: MeterPoint) -> ConsumptionSummary:
         now = dt_util.now(UK_TZ)

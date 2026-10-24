@@ -46,10 +46,12 @@ class DeviceTracker:
         subentry_id: str,
         source_entity_id: str,
         mpan: str,
+        power_entity_id: str | None = None,
     ) -> None:
         self.hass = hass
         self.rates = rates
         self.source = source_entity_id
+        self.power_entity = power_entity_id
         self.mpan = mpan
         self.totals = dict.fromkeys(TOTALS, 0.0)
         self._store: Store[dict[str, Any]] = Store(hass, 1, f"{DOMAIN}.tracker.{subentry_id}")
@@ -65,6 +67,9 @@ class DeviceTracker:
         self._last = self._reading(self.hass.states.get(self.source), dt_util.utcnow())
         unsubs = [
             async_track_state_change_event(self.hass, [self.source], self._state_changed),
+            async_track_state_change_event(
+                self.hass, [self.power_entity] if self.power_entity else [], self._power_changed
+            ),
             # Close off power intervals at each half hour so bands and states stay current.
             async_track_utc_time_change(self.hass, self._tick, minute=(0, 30), second=0),
         ]
@@ -85,6 +90,26 @@ class DeviceTracker:
     def add_listener(self, update: Callable[[], None]) -> Callable[[], None]:
         self._listeners.append(update)
         return lambda: self._listeners.remove(update)
+
+    @property
+    def current_cost_per_hour(self) -> float | None:
+        """Live power x current unit rate, in GBP/hour.
+
+        Uses the separate power sensor if one was given, else the source when
+        it is a power sensor.
+        """
+        if self.power_entity:
+            reading = self._reading(self.hass.states.get(self.power_entity), dt_util.utcnow())
+        else:
+            reading = self._last
+        if not reading or reading[2] != "power":
+            return None
+        kw = reading[1]
+        data = (self.rates.data or {}).get(self.mpan)
+        rate = rate_at(merge_rates(data.unit_rates), dt_util.utcnow()) if data else None
+        if rate is None:
+            return None
+        return kw * rate.value / 100
 
     def _data(self) -> dict[str, Any]:
         return dict(self.totals)
@@ -117,6 +142,10 @@ class DeviceTracker:
                 self._add_energy(last[0], now, delta)
         self._last = new
         self._changed()
+
+    @callback
+    def _power_changed(self, _event: Event[EventStateChangedData]) -> None:
+        self._notify()
 
     @callback
     def _tick(self, now: datetime) -> None:
@@ -164,6 +193,10 @@ class DeviceTracker:
 
     def _changed(self) -> None:
         self._store.async_delay_save(self._data, SAVE_DELAY)
+        self._notify()
+
+    @callback
+    def _notify(self) -> None:
         for update in list(self._listeners):
             update()
 

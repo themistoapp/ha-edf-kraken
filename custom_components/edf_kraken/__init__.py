@@ -17,6 +17,7 @@ from .const import (
     CONF_API_KEY,
     CONF_BACKFILL_DAYS,
     CONF_MPAN,
+    CONF_POWER_ENTITY,
     CONF_SOURCE_ENTITY,
     CONF_TELEMETRY_INTERVAL,
     DEFAULT_BACKFILL_DAYS,
@@ -104,7 +105,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: EdfConfigEntry) -> bool:
 
     for subentry in entry.get_subentries_of_type(SUBENTRY_TRACKED_DEVICE):
         tracker = DeviceTracker(
-            hass, rates, subentry.subentry_id, subentry.data[CONF_SOURCE_ENTITY], subentry.data[CONF_MPAN]
+            hass,
+            rates,
+            subentry.subentry_id,
+            subentry.data[CONF_SOURCE_ENTITY],
+            subentry.data[CONF_MPAN],
+            subentry.data.get(CONF_POWER_ENTITY),
         )
         entry.async_on_unload(await tracker.async_start())
         runtime.trackers[subentry.subentry_id] = tracker
