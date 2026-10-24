@@ -1,0 +1,14 @@
+{
+  "domain": "edf_kraken",
+  "name": "EDF Energy (Kraken)",
+  "codeowners": ["@themistoapp"],
+  "config_flow": true,
+  "dependencies": ["recorder"],
+  "documentation": "https://github.com/themistoapp/ha-edf-kraken",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/themistoapp/ha-edf-kraken/issues",
+  "loggers": ["custom_components.edf_kraken"],
+  "requirements": [],
+  "version": "0.1.0"
+}

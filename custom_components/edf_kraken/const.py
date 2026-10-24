@@ -1,0 +1,41 @@
+"""Constants for the EDF Energy (Kraken) integration."""
+
+from datetime import timedelta
+from zoneinfo import ZoneInfo
+
+DOMAIN = "edf_kraken"
+# Tariff days and bills follow UK time, whatever zone Home Assistant runs in.
+UK_TZ = ZoneInfo("Europe/London")
+MANUFACTURER = "EDF Energy"
+
+API_BASE = "https://api.edfgb-kraken.energy"
+GRAPHQL_URL = f"{API_BASE}/v1/graphql/"
+REST_URL = f"{API_BASE}/v1"
+
+CONF_AUTH_METHOD = "auth_method"
+CONF_API_KEY = "api_key"
+CONF_ACCOUNT_NUMBER = "account_number"
+CONF_TELEMETRY_INTERVAL = "telemetry_interval"
+CONF_BACKFILL_DAYS = "backfill_days"
+
+AUTH_API_KEY = "api_key"
+AUTH_PASSWORD = "password"
+
+# Polling intervals. Kraken gives account users 50,000 GraphQL points per hour
+# and a 200 point ceiling per request; these keep us at a small fraction of that.
+ACCOUNT_INTERVAL = timedelta(hours=1)
+RATES_INTERVAL = timedelta(hours=6)
+CONSUMPTION_INTERVAL = timedelta(minutes=30)
+DEFAULT_TELEMETRY_INTERVAL = 120  # seconds
+MIN_TELEMETRY_INTERVAL = 30
+TELEMETRY_BACKOFF = timedelta(minutes=30)
+TELEMETRY_MAX_FAILURES = 3
+
+DEFAULT_BACKFILL_DAYS = 30
+MAX_BACKFILL_DAYS = 365
+
+# Minimum gap between any two requests to the API, across all coordinators.
+MIN_REQUEST_SPACING = 1.0  # seconds
+REQUEST_TIMEOUT = 30  # seconds
+# Refresh the JWT this long before it expires.
+TOKEN_EXPIRY_MARGIN = timedelta(minutes=5)

@@ -1,0 +1,82 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to EDF",
+        "description": "Choose how to sign in. An API key is recommended: it avoids the login rate limits that apply to email and password.",
+        "menu_options": {
+          "api_key": "API key",
+          "password": "Email and password"
+        }
+      },
+      "api_key": {
+        "title": "EDF API key",
+        "data": { "api_key": "API key" },
+        "data_description": { "api_key": "Your account's API key (starts with sk_live_)." }
+      },
+      "password": {
+        "title": "EDF account login",
+        "data": { "email": "Email", "password": "Password" }
+      },
+      "account": {
+        "title": "Choose account",
+        "data": { "account_number": "Account" }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate with EDF",
+        "description": "EDF rejected the saved credentials. Enter them again.",
+        "data": { "api_key": "API key", "email": "Email", "password": "Password" }
+      }
+    },
+    "error": {
+      "invalid_auth": "EDF rejected those credentials, or API access isn't enabled for this account.",
+      "cannot_connect": "Couldn't reach the EDF API.",
+      "rate_limited": "EDF is rate limiting requests. Wait 15 minutes and try again.",
+      "no_accounts": "No accounts were found for this login.",
+      "wrong_account": "These credentials don't have access to this account."
+    },
+    "abort": {
+      "already_configured": "This account is already set up.",
+      "reauth_successful": "Re-authenticated successfully."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EDF options",
+        "data": {
+          "telemetry_interval": "Live telemetry poll interval",
+          "backfill_days": "Days of history to import on first run"
+        },
+        "data_description": {
+          "telemetry_interval": "Only used if your smart meter display reports live data to EDF.",
+          "backfill_days": "Only applies before any history has been imported."
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "off_peak": { "name": "Off-peak" }
+    },
+    "sensor": {
+      "balance": { "name": "Balance" },
+      "api_points_remaining": { "name": "API points remaining" },
+      "tariff": { "name": "Tariff" },
+      "current_rate": { "name": "Current rate" },
+      "next_rate": { "name": "Next rate" },
+      "next_rate_change": { "name": "Next rate change" },
+      "standing_charge": { "name": "Standing charge" },
+      "previous_day_consumption": { "name": "Previous day consumption" },
+      "previous_day_cost": { "name": "Previous day cost" },
+      "latest_reading": { "name": "Latest half-hour consumption" },
+      "data_available_to": { "name": "Data available to" },
+      "export_previous_day_consumption": { "name": "Previous day export" },
+      "export_previous_day_cost": { "name": "Previous day export value" },
+      "export_latest_reading": { "name": "Latest half-hour export" },
+      "export_data_available_to": { "name": "Export data available to" },
+      "demand": { "name": "Demand" },
+      "meter_total": { "name": "Meter total" }
+    }
+  }
+}

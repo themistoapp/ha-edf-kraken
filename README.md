@@ -1,0 +1,85 @@
+# EDF Energy (Kraken) for Home Assistant
+
+Brings your EDF Energy (UK) account into Home Assistant using EDF's official API,
+which runs on the Kraken platform. Built for EDF Go Electric, it works with any EDF
+electricity tariff that has a smart meter.
+
+## What you get
+
+**Account**
+- Balance (GBP; positive means in credit)
+- API points remaining (diagnostic, off by default)
+
+**Per electricity meter**
+- Current rate and next rate (GBP/kWh), next rate change, standing charge (GBP/day)
+- Off-peak (binary sensor): on while the cheapest band applies, e.g. 23:00–06:00 on Go Electric
+- Tariff (diagnostic, with tariff/product codes and agreement dates)
+- Previous day consumption (kWh) and cost (GBP, including standing charge)
+- Latest half-hour consumption and the time data is available up to
+- Demand (W) and meter total (kWh), only if your smart meter display sends live data to EDF
+
+**Energy dashboard**
+
+Half-hourly smart meter data arrives late, often the next day, so it is imported into
+long-term statistics with the correct timestamps rather than shown as a live sensor. In
+**Settings → Dashboards → Energy → Electricity grid → Add consumption**, choose
+`EDF electricity consumption <MPAN>`. For cost, choose "Use an entity tracking the total
+costs" and pick `EDF electricity consumption cost <MPAN>`.
+
+On first run the last 30 days are imported (change this under the integration's options).
+
+## Install
+
+1. In HACS, open the ⋮ menu → **Custom repositories**, add
+   `https://github.com/themistoapp/ha-edf-kraken` as an **Integration**.
+2. Install **EDF Energy (Kraken)** and restart Home Assistant.
+3. **Settings → Devices & services → Add integration → EDF Energy (Kraken)**.
+
+## Signing in
+
+Use an **API key** if you can. The integration swaps it for a short-lived token and
+refreshes that token on its own. Email and password also work, but EDF rate limits
+logins, and a CAPTCHA or password change will interrupt them.
+
+If EDF rejects the credentials later, Home Assistant asks you to re-authenticate.
+
+## API rate limits
+
+EDF's API documentation sets these limits:
+
+| Limit | EDF's figure | What this integration does |
+|---|---|---|
+| Points per hour (account users) | 50,000 | Uses a few hundred an hour at most |
+| Complexity per request | 200 | Only small queries, one account at a time |
+| Page size | 100 GraphQL / 25,000 REST | Consumption comes from REST in one page |
+| Request-specific limits (`KT-CT-1199`) | Get stricter each time they're broken | Stops all requests for 15 minutes; no retries |
+| Login attempts | Rate limited per IP | One token reused until it nearly expires, then refreshed |
+
+Polling schedule:
+
+| Data | Source | Interval | Points |
+|---|---|---|---|
+| Account, balance, tariff, points allowance | GraphQL | 1 hour | Yes |
+| Unit rates and standing charges | Public REST | 6 hours, and when your tariff changes | No |
+| Half-hourly consumption | REST | 30 minutes, newest data only | No |
+| Live telemetry (if available) | GraphQL | 2 minutes (configurable, minimum 30s) | Yes |
+
+Requests are spaced at least one second apart. If live telemetry isn't available for your
+meter (`KT-GB-4039`), its entities aren't created. If it stops working later, the poll
+drops to once every 30 minutes until it recovers.
+
+## Troubleshooting
+
+- **No consumption data**: half-hourly data needs a smart meter that sends readings to
+  EDF, and it usually appears the next day. Check the *Data available to* sensor.
+- **Diagnostics**: download them from the integration's ⋮ menu. Credentials, MPANs,
+  serials and addresses are redacted.
+
+## Development
+
+```sh
+python -m venv .venv && .venv/bin/pip install homeassistant pytest-homeassistant-custom-component
+.venv/bin/pytest
+```
+
+This project is not affiliated with or endorsed by EDF Energy.
