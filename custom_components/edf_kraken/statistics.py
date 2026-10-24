@@ -48,6 +48,10 @@ _KINDS = {
 BAND_KINDS = ("peak_energy", "peak_cost", "off_peak_energy", "off_peak_cost")
 
 
+def all_statistic_ids(point: MeterPoint) -> list[str]:
+    return [statistic_id(point, kind) for kind in _KINDS]
+
+
 def _metadata(point: MeterPoint, kind: str) -> StatisticMetaData:
     label = "export" if point.is_export else "consumption"
     prefix, unit = _KINDS[kind]

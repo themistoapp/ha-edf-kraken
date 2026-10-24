@@ -168,7 +168,7 @@ class EdfUsageCard extends HTMLElement {
         <div class="big">${esc(this._fmt(all, false))}${this._unit === "kwh" ? "<small>kWh</small>" : ""}</div>
         <div class="note">${all > 0 ? Math.round((off / all) * 100) : 0}% off-peak</div></div>`;
     });
-    const note = status === "settled" ? "" : `<div class="note est">${status === "partial" ? "Partly settled" : "Estimate from your CTs"}</div>`;
+    const note = status === "settled" ? "" : `<div class="note est">${status === "partial" ? "Partly settled" : "CT estimate"}</div>`;
     return `<div class="stats ${cells.length > 3 ? "tight" : ""}">${cells.join("")}</div>${note}`;
   }
 
@@ -233,7 +233,7 @@ class EdfUsageCard extends HTMLElement {
     const peak = totals.reduce((a, t) => a + t.peak, 0), off = totals.reduce((a, t) => a + t.off, 0);
     const all = peak + off;
     const label = sel === startOfDay(Date.now()) ? "Today" : new Date(sel).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-    const note = status === "settled" ? "Settled by EDF" : status === "partial" ? "Partly settled" : "Estimate from your CTs";
+    const note = status === "settled" ? "Settled by EDF" : status === "partial" ? "Partly settled" : "CT estimate";
     const meterTotal = this._value(this._meter.id, sel, "peak") + this._value(this._meter.id, sel, "off_peak");
     const unmeasured = status === "settled" && meterTotal - all > 0.005 * Math.max(meterTotal, 1)
       ? `<div class="note">${this._fmt(meterTotal - all)} not on any circuit</div>` : "";

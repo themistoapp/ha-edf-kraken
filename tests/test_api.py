@@ -94,3 +94,20 @@ async def test_bad_api_key(hass, aioclient_mock):
     client = EdfClient(async_get_clientsession(hass), api_key="nope")
     with pytest.raises(EdfAuthError):
         await client.authenticate()
+
+
+def test_direct_debit_price_only():
+    """Standard Variable lists both payment methods' prices; they aren't two bands."""
+    from datetime import datetime
+
+    from homeassistant.util import dt as dt_util
+
+    from custom_components.edf_kraken.models import band_at, parse_rates
+
+    rows = [
+        {"value_inc_vat": 27.954, "valid_from": "2026-09-30T23:00:00Z", "valid_to": None, "payment_method": "NON_DIRECT_DEBIT"},
+        {"value_inc_vat": 26.466, "valid_from": "2026-09-30T23:00:00Z", "valid_to": None, "payment_method": "DIRECT_DEBIT"},
+    ]
+    rates = parse_rates(rows)
+    assert [r.value for r in rates] == [26.466]
+    assert band_at(rates, datetime(2026, 10, 21, 2, tzinfo=dt_util.UTC)) is None

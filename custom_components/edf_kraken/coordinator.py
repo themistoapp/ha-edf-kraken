@@ -43,10 +43,12 @@ from .models import (
     parse_rates,
     rate_at,
 )
-from .statistics import async_import_statistics, async_last_imported
+from .statistics import all_statistic_ids, async_import_statistics, async_last_imported
 from .statistics import statistic_id as meter_statistic_id
 
 _LOGGER = logging.getLogger(__name__)
+# Bump to clear and re-import every statistic this integration writes.
+STATISTICS_VERSION = 2
 
 
 class EdfCoordinator[T](DataUpdateCoordinator[T]):
@@ -177,6 +179,7 @@ class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
         self._marks: dict[str, Any] | None = None
 
     async def _fetch(self) -> dict[str, ConsumptionSummary]:
+        await self._rebuild_if_outdated()
         result: dict[str, ConsumptionSummary] = {}
         for point in self.account.data.meter_points:
             if not point.serial:
@@ -189,6 +192,29 @@ class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
                 # Tracked devices must never stop the meter's own figures updating.
                 _LOGGER.exception("Updating tracked devices failed")
         return result
+
+    async def _rebuild_if_outdated(self) -> None:
+        """Clear statistics written by an older version with a pricing fault, so they're imported again.
+
+        Version 2: Standard Variable's Direct Debit and non-Direct Debit prices
+        were read as two bands, so its days were split into peak and off-peak.
+        """
+        if self._marks is None:
+            self._marks = await self._marks_store.async_load() or {}
+        if self._marks.get("_version") == STATISTICS_VERSION:
+            return
+        ids = [stat_id for point in self.account.data.meter_points for stat_id in all_statistic_ids(point)]
+        ids += [
+            device_history.statistic_id(subentry.subentry_id, kind)
+            for subentry in self.config_entry.get_subentries_of_type(SUBENTRY_TRACKED_DEVICE)
+            for kind in device_history.KINDS
+        ]
+        recorder = get_instance(self.hass)
+        recorder.async_clear_statistics(ids)
+        await recorder.async_block_till_done()
+        # Circuits rebuild from scratch too.
+        self._marks = {"_version": STATISTICS_VERSION}
+        await self._marks_store.async_save(self._marks)
 
     async def async_update_devices(self) -> None:
         """Bring tracked devices up to the last complete hour, between meter fetches."""

@@ -109,7 +109,15 @@ def parse_account(data: dict[str, Any]) -> AccountData:
     )
 
 
-def parse_rates(rows: list[dict[str, Any]]) -> list[Rate]:
+def parse_rates(rows: list[dict[str, Any]], payment_method: str = "DIRECT_DEBIT") -> list[Rate]:
+    """Rates in time order.
+
+    Some tariffs (Standard Variable) list a Direct Debit and a non-Direct Debit
+    price for the same period; only one of them applies, or the two would look
+    like peak and off-peak bands.
+    """
+    if any(r.get("payment_method") == payment_method for r in rows):
+        rows = [r for r in rows if r.get("payment_method") in (payment_method, None)]
     rates = [
         Rate(_dt(r["valid_from"]), _dt(r.get("valid_to")), float(r["value_inc_vat"]))
         for r in rows
