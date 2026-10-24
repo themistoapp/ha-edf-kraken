@@ -16,7 +16,8 @@ electricity tariff that has a smart meter.
 - Tariff (diagnostic, with tariff/product codes and agreement dates)
 - Last full day consumption (kWh) and cost (GBP, including standing charge). Smart meter
   data usually arrives a day or two late, so this is the newest complete day, with its date as an attribute
-- Latest half-hour consumption and the time data is available up to
+- Last full day peak and off-peak consumption and cost
+- Data available to: how far EDF's half-hourly data reaches
 - Demand (W) and meter total (kWh), only if your smart meter display sends live data to EDF
 
 **Energy dashboard**
@@ -27,7 +28,26 @@ long-term statistics with the correct timestamps rather than shown as a live sen
 `EDF electricity consumption <MPAN>`. For cost, choose "Use an entity tracking the total
 costs" and pick `EDF electricity consumption cost <MPAN>`.
 
+Peak and off-peak statistics are also written (`EDF electricity consumption peak <MPAN>`,
+`... off-peak <MPAN>` and their cost versions). To see the split, add both as consumption
+sources instead of the total. Off-peak is the cheapest band of your tariff, e.g. 23:00–06:00
+on Go Electric. On a single-rate tariff everything counts as peak.
+
+EDF has its own time-of-use endpoint, but it needs a time-of-use scheme attached to the
+tariff, and Go Electric doesn't have one. The integration splits the same half-hourly meter
+readings itself, assigning each half hour to the band in force when it starts, as EDF's endpoint does.
+
 On first run the last 30 days are imported (change this under the integration's options).
+
+**Tracked devices**
+
+To see what one appliance costs, such as an EV charger or hot tub, open the integration and
+choose **Add tracked device**. Pick its power sensor (W/kW) or energy sensor (Wh/kWh). You
+get peak energy, off-peak energy, peak cost, off-peak cost and total cost. Usage is priced at
+your EDF rate as it happens and split exactly at rate changes. No API calls are made; it
+reuses the cached rates. Totals keep running and survive restarts. History graphs and
+statistics give the per-day breakdown, and the energy sensors can be added to the Energy
+dashboard's individual devices. Time while Home Assistant is down isn't counted.
 
 ## Install
 

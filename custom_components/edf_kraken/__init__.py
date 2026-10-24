@@ -8,6 +8,7 @@ from datetime import timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import EdfClient
@@ -15,9 +16,13 @@ from .const import (
     CONF_ACCOUNT_NUMBER,
     CONF_API_KEY,
     CONF_BACKFILL_DAYS,
+    CONF_MPAN,
+    CONF_SOURCE_ENTITY,
     CONF_TELEMETRY_INTERVAL,
     DEFAULT_BACKFILL_DAYS,
     DEFAULT_TELEMETRY_INTERVAL,
+    DOMAIN,
+    SUBENTRY_TRACKED_DEVICE,
 )
 from .coordinator import (
     AccountCoordinator,
@@ -25,6 +30,7 @@ from .coordinator import (
     RatesCoordinator,
     TelemetryCoordinator,
 )
+from .tracker import DeviceTracker
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
@@ -36,6 +42,7 @@ class EdfRuntimeData:
     rates: RatesCoordinator
     consumption: ConsumptionCoordinator
     telemetry: dict[str, TelemetryCoordinator] = field(default_factory=dict)
+    trackers: dict[str, DeviceTracker] = field(default_factory=dict)
 
 
 type EdfConfigEntry = ConfigEntry[EdfRuntimeData]
@@ -87,6 +94,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: EdfConfigEntry) -> bool:
     entry.async_on_unload(account.async_add_listener(_account_updated))
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
+    # The latest half-hour sensor was removed in 0.1.2.
+    registry = er.async_get(hass)
+    for point in account.data.meter_points:
+        if entity_id := registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{account.account_number}_electricity_{point.mpan}_latest_reading"
+        ):
+            registry.async_remove(entity_id)
+
+    for subentry in entry.get_subentries_of_type(SUBENTRY_TRACKED_DEVICE):
+        tracker = DeviceTracker(
+            hass, rates, subentry.subentry_id, subentry.data[CONF_SOURCE_ENTITY], subentry.data[CONF_MPAN]
+        )
+        entry.async_on_unload(await tracker.async_start())
+        runtime.trackers[subentry.subentry_id] = tracker
+
     entry.runtime_data = runtime
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -94,6 +116,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: EdfConfigEntry) -> bool:
 
 async def _async_options_updated(hass: HomeAssistant, entry: EdfConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: EdfConfigEntry) -> None:
+    for subentry in entry.subentries.values():
+        await DeviceTracker.async_remove_storage(hass, subentry.subentry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: EdfConfigEntry) -> bool:

@@ -116,9 +116,6 @@
       "previous_day_cost": {
         "name": "Last full day cost"
       },
-      "latest_reading": {
-        "name": "Latest half-hour consumption"
-      },
       "data_available_to": {
         "name": "Data available to"
       },
@@ -128,9 +125,6 @@
       "export_previous_day_cost": {
         "name": "Last full day export value"
       },
-      "export_latest_reading": {
-        "name": "Latest half-hour export"
-      },
       "export_data_available_to": {
         "name": "Export data available to"
       },
@@ -139,6 +133,65 @@
       },
       "meter_total": {
         "name": "Meter total"
+      },
+      "previous_day_peak_consumption": {
+        "name": "Last full day peak consumption"
+      },
+      "previous_day_off_peak_consumption": {
+        "name": "Last full day off-peak consumption"
+      },
+      "previous_day_peak_cost": {
+        "name": "Last full day peak cost"
+      },
+      "previous_day_off_peak_cost": {
+        "name": "Last full day off-peak cost"
+      },
+      "tracked_peak_energy": {
+        "name": "Peak energy"
+      },
+      "tracked_off_peak_energy": {
+        "name": "Off-peak energy"
+      },
+      "tracked_peak_cost": {
+        "name": "Peak cost"
+      },
+      "tracked_off_peak_cost": {
+        "name": "Off-peak cost"
+      },
+      "tracked_total_cost": {
+        "name": "Total cost"
+      }
+    }
+  },
+  "config_subentries": {
+    "tracked_device": {
+      "entry_type": "Tracked device",
+      "initiate_flow": {
+        "user": "Add tracked device"
+      },
+      "step": {
+        "user": {
+          "title": "Track a device's peak and off-peak cost",
+          "description": "Pick a power sensor (W or kW) or an energy sensor (Wh or kWh) for something like an EV charger or hot tub. Its usage is split into peak and off-peak and priced at your EDF rates as it happens.",
+          "data": {
+            "name": "Name",
+            "source_entity": "Power or energy sensor",
+            "mpan": "Meter"
+          }
+        },
+        "reconfigure": {
+          "title": "Edit tracked device",
+          "data": {
+            "name": "Name",
+            "source_entity": "Power or energy sensor",
+            "mpan": "Meter"
+          }
+        }
+      },
+      "abort": {
+        "not_loaded": "Set up the EDF account first.",
+        "no_meters": "This account has no import meter.",
+        "reconfigure_successful": "Saved."
       }
     }
   }

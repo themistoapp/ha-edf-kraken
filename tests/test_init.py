@@ -86,6 +86,10 @@ async def test_setup_creates_entities(hass: HomeAssistant, freezer, entry, mock_
     assert float(state(f"{prefix}_previous_day_consumption").state) == pytest.approx(12.0)
     expected = (14 * 0.25 * 6.66 + 34 * 0.25 * 37.207) / 100 + 0.4807
     assert float(state(f"{prefix}_previous_day_cost").state) == pytest.approx(expected, abs=0.01)
+    assert float(state(f"{prefix}_previous_day_off_peak_consumption").state) == pytest.approx(14 * 0.25)
+    assert float(state(f"{prefix}_previous_day_peak_consumption").state) == pytest.approx(34 * 0.25)
+    assert float(state(f"{prefix}_previous_day_off_peak_cost").state) == pytest.approx(14 * 0.25 * 6.66 / 100, abs=0.01)
+    assert float(state(f"{prefix}_previous_day_peak_cost").state) == pytest.approx(34 * 0.25 * 37.207 / 100, abs=0.01)
 
     # Off-peak flips on at 23:00 local.
     freezer.move_to("2026-10-24T22:00:00+00:00")
@@ -106,6 +110,14 @@ async def test_setup_creates_entities(hass: HomeAssistant, freezer, entry, mock_
     # 30 days back from midnight UK time (23:00Z) up to the feed's end at 00:00Z.
     assert len(rows) == 30 * 24 + 1
     assert rows[-1]["sum"] == pytest.approx(len(rows) * 0.5)
+    band_ids = {f"{DOMAIN}:electricity_{MPAN}_consumption_{b}_energy" for b in ("peak", "off_peak")}
+    band_stats = await hass.async_add_executor_job(
+        statistics_during_period, hass, dt_util.utcnow() - timedelta(days=40), None, band_ids, "hour", None, {"sum"}
+    )
+    # Peak and off-peak add up to the total; off-peak is 7 of every 24 hours.
+    peak, off_peak = (band_stats[i][-1]["sum"] for i in sorted(band_ids, reverse=True))
+    assert peak + off_peak == pytest.approx(rows[-1]["sum"])
+    assert off_peak == pytest.approx(30 * 7 * 0.5, abs=1.0)
 
 
 async def test_statistics_import_is_incremental(hass, freezer, entry, mock_client):

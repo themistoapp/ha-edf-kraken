@@ -15,12 +15,14 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_utc_time_change
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from . import EdfConfigEntry
+from .const import DOMAIN, MANUFACTURER
 from .coordinator import (
     AccountCoordinator,
     ConsumptionCoordinator,
@@ -31,6 +33,7 @@ from .coordinator import (
 )
 from .entity import account_device, meter_device
 from .models import AccountData, MeterPoint, Rate, merge_rates, rate_at
+from .tracker import DeviceTracker
 
 GBP_PER_KWH = "GBP/kWh"
 GBP_PER_DAY = "GBP/day"
@@ -55,6 +58,7 @@ async def async_setup_entry(
             entities += [
                 ConsumptionSensor(data.consumption, number, point, desc)
                 for desc in CONSUMPTION_SENSORS
+                if not (point.is_export and desc.key in SPLIT_KEYS)
             ]
         telemetry = data.telemetry.get(point.device_id or "")
         if telemetry and not point.is_export:
@@ -62,6 +66,20 @@ async def async_setup_entry(
                 TelemetrySensor(telemetry, number, point, desc) for desc in TELEMETRY_SENSORS
             ]
     async_add_entities(entities)
+
+    for subentry_id, tracker in data.trackers.items():
+        subentry = entry.subentries[subentry_id]
+        device = DeviceInfo(
+            identifiers={(DOMAIN, f"tracked_{subentry_id}")},
+            name=subentry.title,
+            manufacturer=MANUFACTURER,
+            model="Tracked device",
+            via_device=(DOMAIN, f"electricity_{tracker.mpan}"),
+        )
+        async_add_entities(
+            [TrackedDeviceSensor(tracker, subentry_id, device, desc) for desc in TRACKED_SENSORS],
+            config_subentry_id=subentry_id,
+        )
 
 
 # -- account -------------------------------------------------------------
@@ -307,8 +325,8 @@ class ConsumptionSensorDescription(SensorEntityDescription):
     attrs_fn: Callable[[ConsumptionSummary], dict[str, Any]] | None = None
 
 
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
+def _day_attrs(s: ConsumptionSummary) -> dict[str, Any]:
+    return {"date": s.previous_day.date().isoformat() if s.previous_day else None}
 
 
 CONSUMPTION_SENSORS = (
@@ -319,7 +337,7 @@ CONSUMPTION_SENSORS = (
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         suggested_display_precision=2,
         value_fn=lambda s: s.previous_day_kwh,
-        attrs_fn=lambda s: {"date": s.previous_day.date().isoformat() if s.previous_day else None},
+        attrs_fn=_day_attrs,
     ),
     ConsumptionSensorDescription(
         key="previous_day_cost",
@@ -339,13 +357,40 @@ CONSUMPTION_SENSORS = (
         },
     ),
     ConsumptionSensorDescription(
-        key="latest_reading",
-        translation_key="latest_reading",
+        key="previous_day_peak_consumption",
+        translation_key="previous_day_peak_consumption",
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        suggested_display_precision=3,
-        value_fn=lambda s: s.latest_kwh,
-        attrs_fn=lambda s: {"interval_start": _iso(s.latest_start), "interval_end": _iso(s.latest_end)},
+        suggested_display_precision=2,
+        value_fn=lambda s: s.previous_day_peak_kwh,
+        attrs_fn=_day_attrs,
+    ),
+    ConsumptionSensorDescription(
+        key="previous_day_off_peak_consumption",
+        translation_key="previous_day_off_peak_consumption",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda s: s.previous_day_off_peak_kwh,
+        attrs_fn=_day_attrs,
+    ),
+    ConsumptionSensorDescription(
+        key="previous_day_peak_cost",
+        translation_key="previous_day_peak_cost",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement="GBP",
+        suggested_display_precision=2,
+        value_fn=lambda s: s.previous_day_peak_cost,
+        attrs_fn=_day_attrs,
+    ),
+    ConsumptionSensorDescription(
+        key="previous_day_off_peak_cost",
+        translation_key="previous_day_off_peak_cost",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement="GBP",
+        suggested_display_precision=2,
+        value_fn=lambda s: s.previous_day_off_peak_cost,
+        attrs_fn=_day_attrs,
     ),
     ConsumptionSensorDescription(
         key="data_available_to",
@@ -355,6 +400,14 @@ CONSUMPTION_SENSORS = (
         value_fn=lambda s: s.latest_end,
     ),
 )
+
+
+SPLIT_KEYS = {
+    "previous_day_peak_consumption",
+    "previous_day_off_peak_consumption",
+    "previous_day_peak_cost",
+    "previous_day_off_peak_cost",
+}
 
 
 class ConsumptionSensor(MeterPointEntity, CoordinatorEntity[ConsumptionCoordinator], SensorEntity):
@@ -443,3 +496,85 @@ class TelemetrySensor(MeterPointEntity, CoordinatorEntity[TelemetryCoordinator],
     def extra_state_attributes(self) -> dict[str, Any] | None:
         data = self.coordinator.data or {}
         return {"read_at": data.get("readAt")}
+
+
+# -- tracked devices -------------------------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class TrackedSensorDescription(SensorEntityDescription):
+    value_fn: Callable[[dict[str, float]], float]
+
+
+TRACKED_SENSORS = (
+    TrackedSensorDescription(
+        key="peak_energy",
+        translation_key="tracked_peak_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=3,
+        value_fn=lambda t: round(t["peak_kwh"], 4),
+    ),
+    TrackedSensorDescription(
+        key="off_peak_energy",
+        translation_key="tracked_off_peak_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=3,
+        value_fn=lambda t: round(t["off_peak_kwh"], 4),
+    ),
+    TrackedSensorDescription(
+        key="peak_cost",
+        translation_key="tracked_peak_cost",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement="GBP",
+        suggested_display_precision=2,
+        value_fn=lambda t: round(t["peak_cost"], 4),
+    ),
+    TrackedSensorDescription(
+        key="off_peak_cost",
+        translation_key="tracked_off_peak_cost",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement="GBP",
+        suggested_display_precision=2,
+        value_fn=lambda t: round(t["off_peak_cost"], 4),
+    ),
+    TrackedSensorDescription(
+        key="total_cost",
+        translation_key="tracked_total_cost",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement="GBP",
+        suggested_display_precision=2,
+        value_fn=lambda t: round(t["peak_cost"] + t["off_peak_cost"], 4),
+    ),
+)
+
+
+class TrackedDeviceSensor(SensorEntity):
+    """Running totals for a tracked device; long-term statistics give the daily split."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    entity_description: TrackedSensorDescription
+
+    def __init__(self, tracker: DeviceTracker, subentry_id: str, device: DeviceInfo, description) -> None:
+        self.entity_description = description
+        self._tracker = tracker
+        self._attr_unique_id = f"tracked_{subentry_id}_{description.key}"
+        self._attr_device_info = device
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(self._tracker.add_listener(self.async_write_ha_state))
+
+    @property
+    def native_value(self) -> float:
+        return self.entity_description.value_fn(self._tracker.totals)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"source": self._tracker.source}

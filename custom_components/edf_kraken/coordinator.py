@@ -24,7 +24,17 @@ from .const import (
     TELEMETRY_MAX_FAILURES,
     UK_TZ,
 )
-from .models import AccountData, MeterPoint, Rate, parse_account, parse_rates, rate_at
+from .models import (
+    OFF_PEAK,
+    PEAK,
+    AccountData,
+    MeterPoint,
+    Rate,
+    band_at,
+    parse_account,
+    parse_rates,
+    rate_at,
+)
 from .statistics import async_import_statistics, async_last_imported
 
 _LOGGER = logging.getLogger(__name__)
@@ -115,13 +125,16 @@ class RatesCoordinator(EdfCoordinator[dict[str, TariffRates]]):
 
 @dataclass
 class ConsumptionSummary:
-    latest_start: datetime | None = None
     latest_end: datetime | None = None
-    latest_kwh: float | None = None
     previous_day: datetime | None = None
     previous_day_kwh: float | None = None
     previous_day_energy_cost: float | None = None  # GBP
     previous_day_standing_charge: float | None = None  # GBP
+    # Split by band; None on single-rate tariffs.
+    previous_day_peak_kwh: float | None = None
+    previous_day_off_peak_kwh: float | None = None
+    previous_day_peak_cost: float | None = None  # GBP
+    previous_day_off_peak_cost: float | None = None  # GBP
 
 
 class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
@@ -172,24 +185,35 @@ class ConsumptionCoordinator(EdfCoordinator[dict[str, ConsumptionSummary]]):
                 point,
                 [r for r in readings if r[0] >= stats_from],
                 lambda moment: _rate_for(point, rates, moment),
+                lambda moment: _band_for(point, rates, moment),
             )
 
         summary = ConsumptionSummary()
         if readings:
-            summary.latest_start, summary.latest_end, summary.latest_kwh = readings[-1]
+            summary.latest_end = readings[-1][1]
         day_start, day = _latest_complete_day(readings, summary_from)
         if day_start is not None:
             summary.previous_day = day_start
             summary.previous_day_kwh = round(sum(r[2] for r in day), 3)
             energy_cost = 0.0
+            bands = {PEAK: [0.0, 0.0], OFF_PEAK: [0.0, 0.0]}  # band -> [kWh, pence]
             for start, _end, kwh in day:
                 rate = _rate_for(point, rates, start)
                 if rate is None:
                     energy_cost = None
                     break
                 energy_cost += kwh * rate
+                band = _band_for(point, rates, start)
+                if band:
+                    bands[band][0] += kwh
+                    bands[band][1] += kwh * rate
             if energy_cost is not None:
                 summary.previous_day_energy_cost = round(energy_cost / 100, 2)
+                if any(_band_for(point, rates, r[0]) for r in day):
+                    summary.previous_day_peak_kwh = round(bands[PEAK][0], 3)
+                    summary.previous_day_off_peak_kwh = round(bands[OFF_PEAK][0], 3)
+                    summary.previous_day_peak_cost = round(bands[PEAK][1] / 100, 2)
+                    summary.previous_day_off_peak_cost = round(bands[OFF_PEAK][1] / 100, 2)
             agreement = point.agreement_at(day_start)
             standing = _standing_for(agreement, rates, day_start)
             if standing is not None:
@@ -245,6 +269,13 @@ def _rate_for(point: MeterPoint, rates: dict[str, dict[str, list[Rate]]], moment
         return None
     rate = rate_at(rates[agreement.tariff.tariff_code]["unit"], moment)
     return rate.value if rate else None
+
+
+def _band_for(point: MeterPoint, rates: dict[str, dict[str, list[Rate]]], moment: datetime) -> str | None:
+    agreement = point.agreement_at(moment)
+    if not agreement or not agreement.tariff or agreement.tariff.tariff_code not in rates:
+        return None
+    return band_at(rates[agreement.tariff.tariff_code]["unit"], moment)
 
 
 def _standing_for(agreement, rates: dict[str, dict[str, list[Rate]]], moment: datetime) -> float | None:

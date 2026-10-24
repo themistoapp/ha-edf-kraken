@@ -7,16 +7,22 @@ from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import (
     ConfigEntry,
+    ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
+    ConfigSubentryFlow,
     OptionsFlow,
+    SubentryFlowResult,
 )
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.const import CONF_EMAIL, CONF_NAME, CONF_PASSWORD
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -35,12 +41,15 @@ from .const import (
     CONF_API_KEY,
     CONF_AUTH_METHOD,
     CONF_BACKFILL_DAYS,
+    CONF_MPAN,
+    CONF_SOURCE_ENTITY,
     CONF_TELEMETRY_INTERVAL,
     DEFAULT_BACKFILL_DAYS,
     DEFAULT_TELEMETRY_INTERVAL,
     DOMAIN,
     MAX_BACKFILL_DAYS,
     MIN_TELEMETRY_INTERVAL,
+    SUBENTRY_TRACKED_DEVICE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -170,6 +179,13 @@ class EdfConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
         return self.async_show_form(step_id=step_id, data_schema=schema, errors=errors)
 
+    @classmethod
+    @callback
+    def async_get_supported_subentry_types(
+        cls, config_entry: ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        return {SUBENTRY_TRACKED_DEVICE: TrackedDeviceSubentryFlow}
+
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
@@ -211,3 +227,44 @@ class EdfOptionsFlow(OptionsFlow):
                 }
             ),
         )
+
+
+class TrackedDeviceSubentryFlow(ConfigSubentryFlow):
+    """Add a device (EV charger, hot tub...) whose usage is split by tariff band."""
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        return await self._step("user", user_input)
+
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        return await self._step("reconfigure", user_input)
+
+    async def _step(self, step_id: str, user_input: dict[str, Any] | None) -> SubentryFlowResult:
+        entry = self._get_entry()
+        if entry.state is not ConfigEntryState.LOADED:
+            return self.async_abort(reason="not_loaded")
+        meters = [p.mpan for p in entry.runtime_data.account.data.meter_points if not p.is_export]
+        if not meters:
+            return self.async_abort(reason="no_meters")
+        if user_input is not None:
+            data = {CONF_MPAN: meters[0], **user_input}
+            if step_id == "reconfigure":
+                return self.async_update_and_abort(
+                    entry, self._get_reconfigure_subentry(), title=data[CONF_NAME], data=data
+                )
+            return self.async_create_entry(title=data[CONF_NAME], data=data)
+
+        current = dict(self._get_reconfigure_subentry().data) if step_id == "reconfigure" else {}
+        fields: dict[Any, Any] = {
+            vol.Required(CONF_NAME, default=current.get(CONF_NAME, vol.UNDEFINED)): TextSelector(),
+            vol.Required(CONF_SOURCE_ENTITY, default=current.get(CONF_SOURCE_ENTITY, vol.UNDEFINED)): EntitySelector(
+                EntitySelectorConfig(
+                    domain="sensor",
+                    device_class=[SensorDeviceClass.POWER, SensorDeviceClass.ENERGY],
+                )
+            ),
+        }
+        if len(meters) > 1:
+            fields[vol.Required(CONF_MPAN, default=current.get(CONF_MPAN, meters[0]))] = SelectSelector(
+                SelectSelectorConfig(options=meters)
+            )
+        return self.async_show_form(step_id=step_id, data_schema=vol.Schema(fields))

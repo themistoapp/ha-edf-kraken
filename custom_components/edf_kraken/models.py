@@ -119,6 +119,23 @@ def parse_rates(rows: list[dict[str, Any]]) -> list[Rate]:
     return rates
 
 
+PEAK = "peak"
+OFF_PEAK = "off_peak"
+
+
+def band_at(rates: list[Rate], moment: datetime) -> str | None:
+    """PEAK or OFF_PEAK at a moment, or None on a single-rate tariff.
+
+    Off-peak is the cheapest price among the rates given, which for two-rate
+    tariffs like Go Electric is the overnight band.
+    """
+    values = {r.value for r in rates}
+    rate = rate_at(rates, moment)
+    if rate is None or len(values) < 2:
+        return None
+    return OFF_PEAK if rate.value == min(values) else PEAK
+
+
 def merge_rates(rates: list[Rate]) -> list[Rate]:
     """Join back-to-back periods that have the same price.
 
