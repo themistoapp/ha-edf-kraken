@@ -37,8 +37,9 @@ KINDS = {
 }
 
 
-def statistic_id(subentry_id: str, kind: str) -> str:
-    return f"{DOMAIN}:tracked_{subentry_id}_{kind}".lower()
+def statistic_id(base: str, kind: str) -> str:
+    """A tracked device's (or circuit remainder's) statistic for one kind."""
+    return f"{DOMAIN}:tracked_{base}_{kind}".lower()
 
 
 async def async_source_kind(hass: HomeAssistant, entity_id: str) -> str | None:
@@ -142,6 +143,46 @@ async def async_import(
                 continue
             sums[kind] += value
             rows[kind].append(StatisticData(start=hour, state=value, sum=sums[kind]))
+    _write(hass, subentry_id, name, rows)
+
+
+async def async_rewrite(
+    hass: HomeAssistant,
+    base: str,
+    name: str,
+    priced: list[tuple[datetime, dict[str, float]]],
+) -> None:
+    """Write priced hours, replacing any already there from the first one on.
+
+    `priced` must cover every hour from its first to the end, so the running
+    sums stay continuous.
+    """
+    if not priced:
+        return
+    first = priced[0][0]
+    sums = {kind: await _sum_before(hass, statistic_id(base, kind), first) for kind in KINDS}
+    rows: dict[str, list[StatisticData]] = {kind: [] for kind in KINDS}
+    for hour, values in priced:
+        for kind, value in values.items():
+            sums[kind] += value
+            rows[kind].append(StatisticData(start=hour, state=value, sum=sums[kind]))
+    _write(hass, base, name, rows)
+
+
+async def _sum_before(hass: HomeAssistant, stat_id: str, hour: datetime) -> float:
+    """The running sum at the end of the hour before `hour`."""
+    result = await get_instance(hass).async_add_executor_job(
+        statistics_during_period, hass, hour - timedelta(hours=1), hour, {stat_id}, "hour", None, {"sum"}
+    )
+    rows = result.get(stat_id)
+    if rows:
+        return rows[-1]["sum"] or 0.0
+    # Nothing just before: either the series is new or it ends earlier.
+    last = await _last(hass, stat_id)
+    return last[1] if last and last[0] < hour else 0.0
+
+
+def _write(hass: HomeAssistant, base: str, name: str, rows: dict[str, list[StatisticData]]) -> None:
     for kind, data in rows.items():
         if not data:
             continue
@@ -153,7 +194,7 @@ async def async_import(
                 has_sum=True,
                 name=f"{name} {label}",
                 source=DOMAIN,
-                statistic_id=statistic_id(subentry_id, kind),
+                statistic_id=statistic_id(base, kind),
                 unit_class=EnergyConverter.UNIT_CLASS if unit == UnitOfEnergy.KILO_WATT_HOUR else None,
                 unit_of_measurement=unit,
             ),

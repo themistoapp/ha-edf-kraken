@@ -131,7 +131,9 @@ async def test_add_tracked_device_flow(hass, freezer, mock_client):  # noqa: F81
     assert result["type"] == "create_entry"
     await hass.async_block_till_done(wait_background_tasks=True)
     subentry = next(iter(entry.subentries.values()))
-    assert subentry.data == {"name": "Hot tub", CONF_SOURCE_ENTITY: "sensor.spa_power", CONF_MPAN: MPAN}
+    assert subentry.data == {
+        "name": "Hot tub", CONF_SOURCE_ENTITY: "sensor.spa_power", CONF_MPAN: MPAN, "role": "standalone"
+    }
     assert len(entry.runtime_data.trackers) == 1
 
 

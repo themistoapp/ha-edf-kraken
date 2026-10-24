@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import timedelta
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.event import async_track_utc_time_change
+from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 
 from .api import EdfClient
 from .const import (
@@ -32,8 +37,11 @@ from .coordinator import (
     TelemetryCoordinator,
 )
 from .tracker import DeviceTracker
+from .websocket import async_register as async_register_websocket
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR]
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+CARD_URL = f"/{DOMAIN}/edf-usage-card.js"
 
 
 @dataclass
@@ -47,6 +55,20 @@ class EdfRuntimeData:
 
 
 type EdfConfigEntry = ConfigEntry[EdfRuntimeData]
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    async_register_websocket(hass)
+    # The usage card ships with the integration, so it loads on every dashboard without a separate install.
+    if hass.http is not None and "frontend" in hass.config.components:
+        from homeassistant.components.frontend import add_extra_js_url
+        from homeassistant.components.http import StaticPathConfig
+
+        path = Path(__file__).parent / "frontend" / "edf-usage-card.js"
+        await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, str(path), cache_headers=False)])
+        version = (await async_get_integration(hass, DOMAIN)).version
+        add_extra_js_url(hass, f"{CARD_URL}?v={version}")
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: EdfConfigEntry) -> bool:
@@ -93,6 +115,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: EdfConfigEntry) -> bool:
             hass.async_create_task(rates.async_request_refresh())
 
     entry.async_on_unload(account.async_add_listener(_account_updated))
+
+    # Home Assistant compiles each hour's statistics just after the hour, so a
+    # few minutes later tracked devices can catch up without asking EDF.
+    @callback
+    def _hourly(_now) -> None:
+        entry.async_create_background_task(
+            hass, consumption.async_update_devices(), "edf_kraken tracked devices"
+        )
+
+    entry.async_on_unload(async_track_utc_time_change(hass, _hourly, minute=5, second=0))
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     # The latest half-hour sensor was removed in 0.1.2.

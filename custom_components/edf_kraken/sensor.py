@@ -22,6 +22,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from . import EdfConfigEntry
+from .circuits import layout, remainder_id
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import (
     AccountCoordinator,
@@ -88,6 +89,22 @@ async def async_setup_entry(
             ],
             config_subentry_id=subentry_id,
         )
+
+    # Each circuit's remainder (the circuit less the loads measured inside it) as its own device.
+    for point in account.data.meter_points:
+        for circuit in layout(entry.subentries.values(), point.mpan):
+            base = remainder_id(circuit.subentry_id)
+            device = DeviceInfo(
+                identifiers={(DOMAIN, f"tracked_{base}")},
+                name=circuit.remainder_name,
+                manufacturer=MANUFACTURER,
+                model="Rest of circuit",
+                via_device=(DOMAIN, f"tracked_{circuit.subentry_id}"),
+            )
+            async_add_entities(
+                [TrackedDaySensor(data.consumption, base, device, desc) for desc in TRACKED_DAY_SENSORS],
+                config_subentry_id=circuit.subentry_id,
+            )
 
 
 # -- account -------------------------------------------------------------

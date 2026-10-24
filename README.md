@@ -60,10 +60,63 @@ Each tracked device gets:
 
 The device's peak/off-peak energy and cost are also written to long-term statistics, rebuilt
 from Home Assistant's history and priced at the EDF rate in force at the time. They backfill
-to the start of your EDF supply (up to a year) and update every 30 minutes, so they appear in
+to the start of your EDF supply (up to a year) and update just after every hour, so they appear in
 statistics graphs and the Energy dashboard's individual devices. The history part needs the
 sensor to have long-term statistics (a state class), which most energy and power sensors do.
 None of this calls the EDF API beyond the public tariff rates.
+
+**Circuits (CT clamps)**
+
+If you have CT clamps on your boards, add each one as a tracked device and set **Measures**
+to *A circuit*. All the circuits on a meter should add up to it. Then add anything measured
+inside a circuit (a hot tub on the house board) as *A load inside a circuit* and pick its
+circuit. For example:
+
+| Tracked device | Measures | Inside | Name for the rest |
+|---|---|---|---|
+| DB1 (house board CT) | A circuit | | House |
+| DB-EV (EV board CT) | A circuit | | EV |
+| Spa | A load inside a circuit | DB1 | |
+
+This gives House (DB1 less the spa), Spa and EV. Until EDF's half hours arrive, their
+figures are the CTs' own estimate, updated just after every hour. Once EDF settles an hour,
+every circuit on the meter is scaled by the same factor so they add up to the meter, and loads
+inside a circuit scale with it. That hour's statistics are rewritten, so graphs switch from the
+estimate to the settled figures by themselves. If the circuits and the meter are more than a
+factor of two apart for an hour (a CT offline, say), that hour is left as measured.
+
+Each circuit's remainder (House above) gets its own device with last-full-day sensors and
+statistics, like any tracked device.
+
+## Usage card
+
+The integration ships a card, so there's nothing else to install: add **EDF usage** from the
+card picker. It shows daily peak (solid) and off-peak (light) bars for each circuit's
+remainder and each load inside it, with a kWh / £ switch in the corner. Days EDF hasn't
+settled yet are striped. Tap a day to see its figures. Without circuits it shows your tracked
+devices instead.
+
+```yaml
+type: custom:edf-usage-card
+title: Electricity use
+days: 7                  # 3 to 31
+unit: gbp                # start in £ (kwh by default); the switch remembers your choice per device
+day: settled             # open on the last settled day (today by default)
+logo: /local/edf.svg     # optional image in the top right, from your /config/www folder
+figures: [total, House, Spa, EV]   # up to four hero figures, each with its off-peak share
+series:                  # optional: which series to draw, in order, and their colours
+  - id: House
+    colour: blue
+  - id: EV
+    colour: orange
+```
+
+`total` in `figures` is the meter itself once a day is settled, so it includes anything not on
+a circuit; before that it adds up the circuits. Leave `figures` out for the default layout:
+the day's total, off-peak and peak, with a breakdown by series below the chart. Colours can be
+`blue`, `green`, `orange`, `purple`, `pink`, `teal`, `yellow` or any CSS colour.
+
+Costs are energy only; the standing charge isn't split by device.
 
 ## Install
 

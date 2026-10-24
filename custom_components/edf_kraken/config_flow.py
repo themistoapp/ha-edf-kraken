@@ -42,7 +42,10 @@ from .const import (
     CONF_AUTH_METHOD,
     CONF_BACKFILL_DAYS,
     CONF_MPAN,
+    CONF_PARENT,
     CONF_POWER_ENTITY,
+    CONF_REMAINDER_NAME,
+    CONF_ROLE,
     CONF_SOURCE_ENTITY,
     CONF_TELEMETRY_INTERVAL,
     DEFAULT_BACKFILL_DAYS,
@@ -50,6 +53,9 @@ from .const import (
     DOMAIN,
     MAX_BACKFILL_DAYS,
     MIN_TELEMETRY_INTERVAL,
+    ROLE_CIRCUIT,
+    ROLE_INSIDE,
+    ROLE_STANDALONE,
     SUBENTRY_TRACKED_DEVICE,
 )
 
@@ -246,15 +252,34 @@ class TrackedDeviceSubentryFlow(ConfigSubentryFlow):
         meters = [p.mpan for p in entry.runtime_data.account.data.meter_points if not p.is_export]
         if not meters:
             return self.async_abort(reason="no_meters")
+        own_id = self._get_reconfigure_subentry().subentry_id if step_id == "reconfigure" else None
+        circuits = {
+            s.subentry_id: s.title
+            for s in entry.get_subentries_of_type(SUBENTRY_TRACKED_DEVICE)
+            if s.data.get(CONF_ROLE) == ROLE_CIRCUIT and s.subentry_id != own_id
+        }
+        errors: dict[str, str] = {}
         if user_input is not None:
             data = {CONF_MPAN: meters[0], **user_input}
-            if step_id == "reconfigure":
-                return self.async_update_and_abort(
-                    entry, self._get_reconfigure_subentry(), title=data[CONF_NAME], data=data
-                )
-            return self.async_create_entry(title=data[CONF_NAME], data=data)
+            role = data.get(CONF_ROLE, ROLE_STANDALONE)
+            if role == ROLE_INSIDE:
+                if data.get(CONF_PARENT) not in circuits:
+                    errors[CONF_PARENT] = "parent_required"
+                else:
+                    # A load is on its circuit's meter.
+                    data[CONF_MPAN] = entry.subentries[data[CONF_PARENT]].data[CONF_MPAN]
+            else:
+                data.pop(CONF_PARENT, None)
+            if role != ROLE_CIRCUIT:
+                data.pop(CONF_REMAINDER_NAME, None)
+            if not errors:
+                if step_id == "reconfigure":
+                    return self.async_update_and_abort(
+                        entry, self._get_reconfigure_subentry(), title=data[CONF_NAME], data=data
+                    )
+                return self.async_create_entry(title=data[CONF_NAME], data=data)
 
-        current = dict(self._get_reconfigure_subentry().data) if step_id == "reconfigure" else {}
+        current = user_input or (dict(self._get_reconfigure_subentry().data) if step_id == "reconfigure" else {})
         fields: dict[Any, Any] = {
             vol.Required(CONF_NAME, default=current.get(CONF_NAME, vol.UNDEFINED)): TextSelector(),
             vol.Required(CONF_SOURCE_ENTITY, default=current.get(CONF_SOURCE_ENTITY, vol.UNDEFINED)): EntitySelector(
@@ -267,9 +292,22 @@ class TrackedDeviceSubentryFlow(ConfigSubentryFlow):
                 CONF_POWER_ENTITY,
                 description={"suggested_value": current.get(CONF_POWER_ENTITY)},
             ): EntitySelector(EntitySelectorConfig(domain="sensor", device_class=SensorDeviceClass.POWER)),
+            vol.Required(CONF_ROLE, default=current.get(CONF_ROLE, ROLE_STANDALONE)): SelectSelector(
+                SelectSelectorConfig(
+                    options=[ROLE_STANDALONE, ROLE_CIRCUIT, ROLE_INSIDE], translation_key=CONF_ROLE
+                )
+            ),
+            vol.Optional(
+                CONF_PARENT, description={"suggested_value": current.get(CONF_PARENT)}
+            ): SelectSelector(
+                SelectSelectorConfig(options=[{"value": k, "label": v} for k, v in circuits.items()])
+            ),
+            vol.Optional(
+                CONF_REMAINDER_NAME, description={"suggested_value": current.get(CONF_REMAINDER_NAME)}
+            ): TextSelector(),
         }
         if len(meters) > 1:
             fields[vol.Required(CONF_MPAN, default=current.get(CONF_MPAN, meters[0]))] = SelectSelector(
                 SelectSelectorConfig(options=meters)
             )
-        return self.async_show_form(step_id=step_id, data_schema=vol.Schema(fields))
+        return self.async_show_form(step_id=step_id, data_schema=vol.Schema(fields), errors=errors)

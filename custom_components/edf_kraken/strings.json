@@ -192,11 +192,17 @@
             "name": "Name",
             "source_entity": "Energy or power sensor",
             "power_entity": "Power sensor for current cost (optional)",
-            "mpan": "Meter"
+            "mpan": "Meter",
+            "role": "Measures",
+            "parent": "Inside circuit",
+            "remainder_name": "Name for the rest of the circuit"
           },
           "data_description": {
             "source_entity": "An energy sensor (kWh) is best: its history is exact. A power sensor (W) also works.",
-            "power_entity": "Only needed if the main sensor is an energy sensor and you want a live Current cost."
+            "power_entity": "Only needed if the main sensor is an energy sensor and you want a live Current cost.",
+            "role": "Circuit: a CT clamp on a whole board or circuit. All circuits on a meter should add up to it, and once EDF settles an hour they are scaled together to match. Inside a circuit: a load also measured by a circuit's CT, like a hot tub on the house board.",
+            "parent": "Only for a load inside a circuit.",
+            "remainder_name": "Circuits only: what's left once the loads inside are taken away, e.g. House. Defaults to the circuit's name."
           }
         },
         "reconfigure": {
@@ -205,11 +211,17 @@
             "name": "Name",
             "source_entity": "Energy or power sensor",
             "power_entity": "Power sensor for current cost (optional)",
-            "mpan": "Meter"
+            "mpan": "Meter",
+            "role": "Measures",
+            "parent": "Inside circuit",
+            "remainder_name": "Name for the rest of the circuit"
           },
           "data_description": {
             "source_entity": "An energy sensor (kWh) is best: its history is exact. A power sensor (W) also works.",
-            "power_entity": "Only needed if the main sensor is an energy sensor and you want a live Current cost."
+            "power_entity": "Only needed if the main sensor is an energy sensor and you want a live Current cost.",
+            "role": "Circuit: a CT clamp on a whole board or circuit. All circuits on a meter should add up to it, and once EDF settles an hour they are scaled together to match. Inside a circuit: a load also measured by a circuit's CT, like a hot tub on the house board.",
+            "parent": "Only for a load inside a circuit.",
+            "remainder_name": "Circuits only: what's left once the loads inside are taken away, e.g. House. Defaults to the circuit's name."
           }
         }
       },
@@ -217,6 +229,18 @@
         "not_loaded": "Set up the EDF account first.",
         "no_meters": "This account has no import meter.",
         "reconfigure_successful": "Saved."
+      },
+      "error": {
+        "parent_required": "Pick the circuit this load is on. Add the circuit first if it isn't listed."
+      }
+    }
+  },
+  "selector": {
+    "role": {
+      "options": {
+        "standalone": "A device on its own",
+        "circuit": "A circuit (CT on a board)",
+        "inside": "A load inside a circuit"
       }
     }
   }

@@ -20,7 +20,16 @@ CONF_BACKFILL_DAYS = "backfill_days"
 CONF_SOURCE_ENTITY = "source_entity"
 CONF_POWER_ENTITY = "power_entity"
 CONF_MPAN = "mpan"
+CONF_ROLE = "role"
+CONF_PARENT = "parent"
+CONF_REMAINDER_NAME = "remainder_name"
 SUBENTRY_TRACKED_DEVICE = "tracked_device"
+
+# How a tracked device relates to the meter: on its own, a circuit (a CT on a
+# board; all circuits add up to the meter), or a load inside a circuit.
+ROLE_STANDALONE = "standalone"
+ROLE_CIRCUIT = "circuit"
+ROLE_INSIDE = "inside"
 
 AUTH_API_KEY = "api_key"
 AUTH_PASSWORD = "password"
@@ -40,6 +49,10 @@ TELEMETRY_MAX_FAILURES = 3
 DEFAULT_BACKFILL_DAYS = 30
 SUMMARY_LOOKBACK_DAYS = 4
 MAX_BACKFILL_DAYS = 365
+# A settled hour is only scaled to the meter when the circuits already come
+# within this factor of it; further out, a CT was probably offline.
+RECONCILE_MIN_FACTOR = 0.5
+RECONCILE_MAX_FACTOR = 2.0
 
 # Minimum gap between any two requests to the API, across all coordinators.
 MIN_REQUEST_SPACING = 1.0  # seconds
